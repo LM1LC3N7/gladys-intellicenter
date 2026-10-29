@@ -59,24 +59,36 @@ dès le démarrage du conteneur. Une commande arrivée avant lui et pas encore
 partie est abandonnée. Plusieurs arrêts cliqués ensemble partent dans une
 seule écriture.
 
-Il est réussi quand la relecture du panneau le montre. Sinon la réponse dit
-pourquoi, et l'arrêt est gardé (dans `/data`) et vérifié toutes les 15 s et à
-chaque lecture :
+Il est réussi quand la relecture du panneau le montre (pour l'arrêt du
+chauffage : le mode Arrêt **et** plus de chauffe en cours). Sinon la réponse
+dit pourquoi, et l'arrêt est gardé (dans `/data`) et vérifié toutes les 15 s
+(chaque adresse de panneau a sa propre vérification) et à chaque lecture :
 
 - **aucune adresse connue** (ni configuration ni panneau lu auparavant) :
-  rien n'est envoyé (le seul refus) ;
+  rien n'est envoyé pour le moment ; l'arrêt est gardé en mémoire et part en
+  premier dès qu'une adresse est connue ;
 - **le panneau ne répond pas** (3 s d'essais, toutes les 250 ms) : réessayé
-  toutes les 15 s et au clic sur **Tester la connexion** ; un arrêt qui
-  n'est jamais parti n'est jamais abandonné ;
-- **refusé par le panneau** (un code autre que 200) : réécrit toutes les
-  15 s (un refus ne compte pas comme écriture) ;
-- **pas encore appliqué** (le panneau ne le montre pas) : réécrit au plus
-  3 fois (écritures acceptées par le panneau), puis tenu sans nouvelle
-  écriture, ce que l'état de l'intégration dit ;
-- **sans confirmation** à temps (4,3 s) : vérifié de la même façon.
+  à chaque vérification (15 s), à chaque lecture qui atteint le panneau et au
+  clic sur **Tester la connexion** ; un arrêt qui n'est jamais parti n'est
+  jamais abandonné ;
+- **refusé par le panneau** (un code autre que 200) : réécrit après 15 s,
+  puis de plus en plus espacé (30 s, 1, 2, 4 min, puis toutes les 5 min),
+  sans fin ; un refus ne compte pas comme écriture ;
+- **pas encore appliqué** (le panneau ne le montre pas) : réécrit 15 s après
+  chaque écriture, au plus 3 fois (écritures acceptées par le panneau), puis
+  tenu sans nouvelle écriture, ce que l'état de l'intégration dit ;
+- **sans confirmation** à temps (4,3 s) : vérifié de la même façon ;
+- **arrêt du chauffage affiché mais le bassin chauffe encore** (le panneau
+  montre le mode Arrêt, mais signale encore une chauffe) : surveillé, rien
+  n'est réécrit ; c'est normal pendant un refroidissement, mais au-delà de
+  2 minutes l'état de l'intégration demande de vérifier sur le panneau (le
+  mode Arrêt écrit vient de pyintellicenter et n'a pas été vérifié sur un
+  vrai panneau).
 
 L'état de l'intégration dit où en est chaque arrêt : pas encore envoyé,
-envoyé en attente de relecture, tenu, ou surveillé.
+envoyé en attente de relecture, refusé (avec le code), tenu, chauffe encore,
+ou surveillé. Si le panneau change d'adresse (même panneau lu à la nouvelle),
+ses arrêts gardés le suivent.
 
 Un arrêt gardé est levé quand le panneau le montre, ou quand une commande du
 même réglage cliquée dans Gladys après lui (option activée) est partie sans
@@ -84,8 +96,9 @@ refus du panneau (une absence de réponse le lève aussi : la commande a pu
 s'appliquer). Un nouveau clic sur Arrêt le réécrit et recompte ses écritures.
 Jamais par le temps. Une commande partie moins de 30 s avant l'arrêt et
 appliquée après lui est contrée par une nouvelle écriture. Tant que l'arrêt
-du chauffage d'un bassin n'est pas vu appliqué, sa consigne et la mise en
-marche de son circuit (si elle chaufferait) sont refusées.
+du chauffage d'un bassin n'est pas vu appliqué, sa consigne, la mise en
+marche de son circuit (si elle chaufferait) et celle d'un groupe de circuits
+sont refusées.
 
 ## Mettre en marche et chauffer (options)
 
@@ -95,7 +108,9 @@ Trois options, **désactivées par défaut** :
   ne sont pas des éclairages (piscine, spa et leurs pompes, circuits mis en
   avant). Mettre en marche une piscine ou un spa dont le mode de chauffage
   n'est pas vu sur Arrêt exige aussi l'option chauffage (sa pompe démarre,
-  et avec elle son chauffage).
+  et avec elle son chauffage). Un **groupe de circuits** (« Spa Mode »…) peut
+  allumer un bassin : il exige l'option chauffage tant qu'un des bassins n'a
+  pas son mode de chauffage vu sur Arrêt.
 - **Autoriser l'allumage des éclairages**.
 - **Autoriser le chauffage** : choisir une source de chauffage, régler la
   consigne. Un **spa est limité à 40 °C**, une piscine au plafond de la
@@ -117,8 +132,9 @@ panneau répond à l'adresse, ou si un arrêt a été cliqué entre-temps.
 - Le panneau n'est jamais lu avant l'intervalle : ni par le bouton **Tester
   la connexion**, ni par une Découverte, ni après une reconnexion à Gladys ou
   un redémarrage (l'heure de la dernière lecture est gardée dans `/data`).
-  Seules les relectures qui suivent une commande (5 et 20 s) et les
-  vérifications d'un arrêt gardé (toutes les 15 s) font exception.
+  Seules les relectures qui suivent une commande ou un clic sur Arrêt (5 et
+  20 s) et les vérifications d'un arrêt gardé (toutes les 15 s, qui ne lisent
+  que les objets de l'arrêt) font exception.
 - Une valeur de plus de 2 minutes n'est jamais renvoyée comme nouvelle.
 - Les consignes de la chimie (pH, redox), la vitesse des pompes, les
   spectacles de lumière et les programmes sont en lecture seule ou absents

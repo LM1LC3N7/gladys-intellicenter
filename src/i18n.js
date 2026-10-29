@@ -138,11 +138,23 @@ export const T = {
       `Another panel answers at this address: ${names} no longer read.`,
       `Un autre panneau répond à cette adresse : ${names} n'est plus lu.`,
     ),
-  stopState: (name, attr, state) => {
+  stopState: (name, attr, state, code) => {
     const what = STOP_WHAT[attr] ?? STOP_WHAT.STATUS;
     const states = {
       notSent: both('not sent yet, tried again', 'pas encore envoyé, réessayé'),
       waiting: both('sent, waiting for the read back', 'envoyé, en attente de relecture'),
+      refused: both(
+        `refused by the panel (${code}), written again later (15 s, then up to 5 min)`,
+        `refusé par le panneau (${code}), réécrit plus tard (15 s, puis jusqu'à 5 min)`,
+      ),
+      coolDown: both(
+        'mode Off shown, the body still heats (cool-down): watched',
+        'mode Arrêt affiché, le bassin chauffe encore (refroidissement) : surveillé',
+      ),
+      stillHeating: both(
+        'mode Off shown, but the body still heats: check on the panel',
+        'mode Arrêt affiché, mais le bassin chauffe encore : vérifiez sur le panneau',
+      ),
       held: both(
         `written ${TIMINGS.stopResends + 1} times without effect: held, no more writes until a new click or the panel shows it`,
         `écrit ${TIMINGS.stopResends + 1} fois sans effet : tenu, plus d'écriture avant un nouveau clic ou que le panneau l'affiche`,
@@ -177,12 +189,12 @@ export const ERRORS = {
       `Les commandes de ${option.fr} ne sont pas autorisées (configuration de l'intégration). L'arrêt fonctionne toujours.`,
     ),
   wouldHeat: both(
-    'Turning this body on would start its heating (heat mode not off): heating must be allowed too.',
-    'Mettre ce bassin en marche lancerait son chauffage (mode de chauffage différent de Arrêt) : le chauffage doit aussi être autorisé.',
+    'Turning this on may start the heating of a body (heat mode not off): heating must be allowed too.',
+    "Cette mise en marche peut lancer le chauffage d'un bassin (mode de chauffage différent de Arrêt) : le chauffage doit aussi être autorisé.",
   ),
   noAddress: both(
-    'No panel address known: nothing sent.',
-    'Aucune adresse de panneau connue : rien envoyé.',
+    'No panel address known: nothing sent yet; kept, sent first as soon as an address is known.',
+    "Aucune adresse de panneau connue : rien envoyé pour le moment ; gardé, envoyé en premier dès qu'une adresse est connue.",
   ),
   notReadYet: both(
     'The configuration is not read yet: nothing sent.',
@@ -253,15 +265,19 @@ export const ERRORS = {
     ),
   stopRefused: (reason) =>
     both(
-      `Stop refused by the panel (${reason}): kept, written again every 15 s (3 times at most).`,
-      `Arrêt refusé par le panneau (${reason}) : gardé, réécrit toutes les 15 s (3 fois au plus).`,
+      `Stop refused by the panel (${reason}): kept, written again after 15 s, then less and less often (up to every 5 min), without end.`,
+      `Arrêt refusé par le panneau (${reason}) : gardé, réécrit après 15 s, puis de plus en plus espacé (jusqu'à toutes les 5 min), sans fin.`,
     ),
   stopUnconfirmed: both(
     'Stop sent, without confirmation yet: kept and checked every 15 s.',
     'Arrêt envoyé, sans confirmation pour le moment : gardé et vérifié toutes les 15 s.',
   ),
+  stopStillHeating: both(
+    'Heating stop written and shown by the panel, but the body still heats: watched (check on the panel if it does not end within 2 minutes).',
+    "Arrêt du chauffage écrit et affiché par le panneau, mais le bassin chauffe encore : surveillé (vérifiez sur le panneau s'il ne cesse pas d'ici 2 minutes).",
+  ),
   stopNotApplied: both(
-    'Stop sent, not applied yet: kept, checked and written again every 15 s (3 times at most).',
-    'Arrêt envoyé, pas encore appliqué : gardé, vérifié et réécrit toutes les 15 s (3 fois au plus).',
+    'Stop sent, not applied yet: kept, checked every 15 s and written again 15 s after each write (3 times at most).',
+    'Arrêt envoyé, pas encore appliqué : gardé, vérifié toutes les 15 s et réécrit 15 s après chaque écriture (3 fois au plus).',
   ),
 };

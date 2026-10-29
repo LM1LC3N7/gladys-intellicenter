@@ -141,15 +141,32 @@ test('a restart writing a stop written before counts it as a resend', async () =
   assert.equal([...t.app.guards.values()][0].resends, 2);
 });
 
-test('a read after a stop that shows it not applied writes it again at once', async () => {
+test('a stop not applied: written again 15 s apart at least, held after 4 writes', async () => {
   const t = await setup({ config: CFG });
   t.panel.objects.C0004.STATUS = 'ON';
   t.panel.ignoreSet = true;
   refused(await t.press('circuit-C0004', 'off', 4400), /pas encore appliqué/);
-  t.panel.ignoreSet = false;
-  // The follow-up read 5 s after the write sees it not applied: written again then, not at 15 s.
-  await t.advance(2 * SECOND, 50);
-  assert.equal(t.panel.objects.C0004.STATUS, 'OFF');
+  await t.advance(3 * MINUTE, 200);
+  const times = t.panel.sets().map((r) => r.at);
+  assert.equal(times.length, 4);
+  for (let k = 1; k < times.length; k += 1) {
+    assert.ok(times[k] - times[k - 1] >= 15 * SECOND, `${times[k] - times[k - 1]} ms`);
+  }
+  assert.ok(times[3] - times[0] >= 45 * SECOND);
+  assert.match(t.status().text, /tenu/);
+});
+
+test('a stop never sent goes at the first read that reaches the panel', async () => {
+  const t = await setup({ config: CFG });
+  t.panel.objects.C0004.STATUS = 'ON';
+  t.panel.down = true;
+  refused(await t.press('circuit-C0004', 'off', 4400), /pas encore envoyé/);
+  // The checks are far: the next one is not before 15 s.
+  t.panel.down = false;
+  const read = t.app.tick();
+  await t.advance(SECOND, 20);
+  await read;
+  assert.equal(t.panel.objects.C0004.STATUS, 'OFF', 'sent at the read, not at the check');
 });
 
 test('a restart: the test button never reads sooner than the interval', async () => {

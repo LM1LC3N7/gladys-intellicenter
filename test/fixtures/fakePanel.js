@@ -137,7 +137,12 @@ export function fakePanel(options = {}) {
   /** The answer to one request (an object), or undefined (silent). */
   panel.handle = (message, conn) => {
     const command = message?.command;
-    panel.requests.push({ command, message, conn });
+    panel.requests.push({
+      command,
+      message,
+      conn,
+      at: panel.timers === globalThis ? performance.now() : panel.clockNow?.(),
+    });
     panel.onRequest?.(message);
     if (panel.silent) return undefined;
     const id = message.messageID;

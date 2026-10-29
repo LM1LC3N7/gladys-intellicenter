@@ -53,7 +53,7 @@ export const OBJECT_KEYS = [
 ];
 
 /** The keys a command reads on its targets just before writing, and reads back. */
-export const COMMAND_KEYS = ['OBJTYP', 'SUBTYP', 'STATUS', 'BODY', 'MODE', 'LOTMP'];
+export const COMMAND_KEYS = ['OBJTYP', 'SUBTYP', 'STATUS', 'BODY', 'MODE', 'LOTMP', 'HTMODE'];
 
 /** Circuit sub-types of lights (pyintellicenter LIGHT_SUBTYPES, plus the light shows). */
 export const LIGHT_SUBTYPES = new Set([
@@ -214,7 +214,14 @@ export const TIMINGS = {
   stopTryTimeout: 2 * SECOND,
   /** The stop waits at most this long for /data before its first byte (a failing disk never holds it). */
   stopSaveWait: 200,
-  /** A stop not seen applied: checked every 15 s. */
+  /** /data: a load that takes longer is unreadable; a save is not awaited longer (reads, start). */
+  loadWait: 2 * SECOND,
+  saveWait: 2 * SECOND,
+  /** A stop refused by the panel: written again after 15 s, doubling up to 5 minutes. */
+  stopRefusedMax: 5 * MINUTE,
+  /** The heat stop: the mode Off shown, the heating may take this long to end (cool-down). */
+  heatCoolDown: 2 * MINUTE,
+  /** A stop not seen applied: checked every 15 s; never written again sooner than 15 s. */
   stopCheck: 15 * SECOND,
   /** A read begun less than this after a stop left does not judge it "not applied". */
   stopApplyDelay: 2 * SECOND,

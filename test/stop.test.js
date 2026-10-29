@@ -116,17 +116,34 @@ test('accepted without effect: written 3 more times, then held, said; let go whe
   assert.equal(t.app.guards.size, 0);
 });
 
-test('a stop refused by the panel: kept and written again, never held by refusals', async () => {
-  const t = await setup({ config: CFG });
+test('a stop refused by the panel: kept, written again later and later, never held by refusals', async () => {
+  const t = await setup({ config: { ...CFG, poll_interval: 600 } });
   t.panel.objects.C0004.STATUS = 'ON';
-  t.panel.refuseSet = '400';
-  refused(await t.press('circuit-C0004', 'off'), /Arrêt refusé par le panneau \(refused \(400\)\)/);
-  await t.advance(2 * MINUTE, 200);
+  t.panel.refuseSet = '403';
+  refused(await t.press('circuit-C0004', 'off'), /Arrêt refusé par le panneau \(refused \(403\)\)/);
+  assert.match(t.status().text, /refusé par le panneau \(403\)/);
+  const reads = t.panel.count('GetParamList');
+  await t.advance(10 * MINUTE, 500);
   const guard = [...t.app.guards.values()][0];
   assert.equal(guard.resends, 0);
-  assert.ok(t.panel.sets().length >= 8);
+  const times = t.panel.sets().map((r) => r.at);
+  const gaps = times.slice(1).map((x, k) => x - times[k]);
+  // 15 s, 30 s, 60 s, 120 s, 240 s, then 300 s: spaced, never given up.
+  assert.ok(
+    gaps.every((g, k) => k === 0 || g >= gaps[k - 1] - 100),
+    gaps.join(','),
+  );
+  assert.ok(
+    gaps[0] >= 15 * SECOND - 100 && gaps.at(-1) <= 5 * MINUTE + 15 * SECOND,
+    gaps.join(','),
+  );
+  assert.ok(times.length >= 5 && times.length <= 8, `${times.length} writes`);
+  // Reads: the checks (every 15 s), the reads after the click; no full read sooner than the interval.
+  const full = t.panel.requests.filter((r) => r.message.objectList?.[0]?.objnam === 'INCR');
+  assert.ok(full.length <= 6, `${full.length} full reads in 10 min`);
+  assert.ok(t.panel.count('GetParamList') - reads < 2 * 45, 'about one check read every 15 s');
   t.panel.refuseSet = undefined;
-  await t.advance(16 * SECOND, 100);
+  await t.advance(6 * MINUTE, 500);
   assert.equal(t.panel.objects.C0004.STATUS, 'OFF');
   assert.equal(t.app.guards.size, 0);
 });

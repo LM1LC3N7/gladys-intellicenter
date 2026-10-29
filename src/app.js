@@ -84,6 +84,7 @@ import { ERROR_KINDS, PanelClient, PanelError, errorReason } from './ic/client.j
 import {
   bodyOfCircuit,
   ceilingOf,
+  integerOf,
   groupObjects,
   isBodyCircuit,
   isLight,
@@ -196,9 +197,14 @@ export class IntelliCenterApp {
     this.stopWorker = undefined;
     /** stop key -> the stop not seen applied. */
     this.guards = new Map();
-    this.checkTimer = undefined;
-    this.checkDueAt = Infinity;
-    this.checking = false;
+    /** address key -> { timer, dueAt }: the check of the stops of each address. */
+    this.checks = new Map();
+    /** The address keys whose check runs now. */
+    this.checking = new Set();
+    /** The stops clicked while no address was known: sent first once one is. */
+    this.addressless = [];
+    /** The JSON of the stops last saved to /data with success. */
+    this.savedStops = '[]';
   }
 
   /** The monotonic clock (every in-memory time). */
@@ -251,13 +257,21 @@ export class IntelliCenterApp {
 
   // --- /data -------------------------------------------------------------------
 
-  /** Loads /data once (the stops kept there belong to the whole run). */
+  /**
+   * Loads /data once (the stops kept there belong to the whole run). A load
+   * that hangs is given up after 2 s and treated as unreadable (never
+   * overwritten): nothing waits for a hung disk without a bound.
+   */
   loadMemory() {
     if (!this.memoryLoaded) {
       this.memoryLoaded = (async () => {
         let result;
         try {
-          result = await this.store.load();
+          const loaded = await this.bounded(
+            Promise.resolve().then(() => this.store.load()),
+            TIMINGS.loadWait,
+          );
+          result = loaded.done ? (loaded.value ?? { unreadable: true }) : { unreadable: true };
         } catch {
           result = { unreadable: true };
         }
@@ -270,7 +284,8 @@ export class IntelliCenterApp {
           return;
         }
         this.memory = normalizeMemory(result?.data ?? null, this.now());
-      })();
+        this.savedStops = JSON.stringify(this.memory.stops);
+      })().finally(() => this.flushAddressless());
     }
     return this.memoryLoaded;
   }
@@ -300,11 +315,16 @@ export class IntelliCenterApp {
       written: g.written,
       resends: g.resends,
     }));
-    if (JSON.stringify(stops) === JSON.stringify(this.memory.stops ?? [])) {
+    // Compared with the last save that succeeded: a failed one is tried again.
+    const json = JSON.stringify(stops);
+    if (json === this.savedStops) {
       return Promise.resolve(true);
     }
     this.memory.stops = stops;
-    return this.saveMemory();
+    return this.saveMemory().then((ok) => {
+      if (ok && JSON.stringify(this.memory.stops) === json) this.savedStops = json;
+      return ok;
+    });
   }
 
   /**
@@ -333,8 +353,8 @@ export class IntelliCenterApp {
       if (!send.has(at)) send.set(at, { target, specs: [] });
       send.get(at).specs.push(kept);
     }
-    if (this.guards.size > 0) {
-      this.armStopCheck(send.size > 0 ? TIMINGS.stopCheck : 0);
+    for (const target of this.stopAddresses()) {
+      this.armStopCheck(send.has(addressKey(target)) ? TIMINGS.stopCheck : 0, target);
     }
     for (const { target, specs } of send.values()) {
       this.logger.warn(`IntelliCenter: ${specs.length} stop(s) kept in /data sent again`);
@@ -353,6 +373,8 @@ export class IntelliCenterApp {
     this.stop();
     this.config = normalizeConfig(raw);
     const generation = this.generation;
+    // A stop clicked before any address was known goes now, first.
+    this.flushAddressless();
     await this.panel.running;
     await this.loadMemory();
     if (generation !== this.generation) {
@@ -368,10 +390,8 @@ export class IntelliCenterApp {
     this.badge = undefined;
     this.lastStatus = undefined;
     this.publisher.start();
-    if (this.guards.size > 0) {
-      // The configuration is known now: the stops are checked at once.
-      this.armStopCheck(0);
-    }
+    // The configuration is known now: the stops are checked at once.
+    for (const target of this.stopAddresses()) this.armStopCheck(0, target);
     if (!this.config.address) {
       await this.publishAll();
       return;
@@ -426,11 +446,8 @@ export class IntelliCenterApp {
   /** The container stops: every timer (the stops are in /data), /data written, the connection closed. */
   async shutdown() {
     this.stop();
-    if (this.checkTimer) {
-      this.timers.clearTimeout(this.checkTimer);
-      this.checkTimer = undefined;
-      this.checkDueAt = Infinity;
-    }
+    for (const check of this.checks.values()) this.timers.clearTimeout(check.timer);
+    this.checks.clear();
     this.memory.lastAttemptAt = Number.isFinite(this.lastAttemptAt)
       ? this.now() - (this.mono() - this.lastAttemptAt)
       : this.memory.lastAttemptAt;
@@ -613,7 +630,8 @@ export class IntelliCenterApp {
     if (mono - this.attemptSavedAt >= TIMINGS.attemptWriteEvery) {
       this.attemptSavedAt = mono;
       this.memory.lastAttemptAt = this.now();
-      await this.saveMemory();
+      // Bounded: a hung disk never stops the reads (nor a new configuration waiting for them).
+      await this.bounded(this.saveMemory(), TIMINGS.saveWait);
     }
   }
 
@@ -710,8 +728,13 @@ export class IntelliCenterApp {
     if (!p.id || (sameAddress(kept, address) && kept.id === p.id)) {
       return;
     }
+    if (kept && kept.id === p.id && !sameAddress(kept, address)) {
+      // The same panel at a new address (DHCP, a host name typed): its kept
+      // stops follow it.
+      this.retargetStops(kept, address);
+    }
     this.memory.target = { host: address.host, port: address.port, id: p.id };
-    await this.saveMemory();
+    await this.bounded(this.saveMemory(), TIMINGS.saveWait);
   }
 
   /** A failed read: the delay before the next one (never sooner than the interval). */
@@ -744,9 +767,12 @@ export class IntelliCenterApp {
       let state;
       if (!g.written) state = 'notSent';
       else if (g.applied) state = 'watch';
-      else if (g.resends >= TIMINGS.stopResends) state = 'held';
+      else if (g.heatingSince !== undefined) {
+        state = this.mono() - g.heatingSince < TIMINGS.heatCoolDown ? 'coolDown' : 'stillHeating';
+      } else if (g.resends >= TIMINGS.stopResends) state = 'held';
+      else if (g.refusedCode !== undefined) state = 'refused';
       else state = 'waiting';
-      notes.push(T.stopState(this.nameOf(g.objnam), g.attr, state));
+      notes.push(T.stopState(this.nameOf(g.objnam), g.attr, state, g.refusedCode));
     }
     if (notes.length > 5) {
       const more = notes.length - 5;
@@ -1207,6 +1233,14 @@ export class IntelliCenterApp {
         if (heats && body && this.guardOf(body, 'MODE')) {
           return { refuse: ERRORS.stopInProgress };
         }
+      } else if (object.subtype === 'CIRCGRP') {
+        // A group ("Spa Mode") may turn a body on, and its heating: its members
+        // are not read, so it heats unless every body is seen with its heat mode off.
+        const bodies = [...objects.values()].filter((o) => o.type === 'BODY');
+        heats = bodies.length === 0 || bodies.some((b) => b.values.MODE !== HEAT_OFF);
+        if (bodies.some((b) => this.guardOf(b.objnam, 'MODE'))) {
+          return { refuse: ERRORS.stopInProgress };
+        }
       }
       const options = this.optionsFor(entry, object, heats);
       const refused = this.admit(entry, options);
@@ -1535,6 +1569,46 @@ export class IntelliCenterApp {
     return kept ? { host: kept.host, port: kept.port } : undefined;
   }
 
+  /** The addresses that have stops kept, one each. */
+  stopAddresses() {
+    const seen = new Map();
+    for (const g of this.guards.values()) {
+      const key = addressKey(g.target);
+      if (!seen.has(key)) seen.set(key, g.target);
+    }
+    return [...seen.values()];
+  }
+
+  /** The stops clicked while no address was known: sent first, now that one is. */
+  flushAddressless() {
+    if (this.addressless.length === 0) return;
+    const target = this.stopTarget();
+    if (!target) return;
+    const specs = this.addressless.splice(0);
+    this.logger.warn(`IntelliCenter: ${specs.length} stop(s) clicked without an address sent now`);
+    this.queueStop({ target, specs, received: this.mono() });
+  }
+
+  /** The same panel answers at a new address: its kept stops go there. */
+  retargetStops(from, to) {
+    let moved = 0;
+    for (const guard of [...this.guards.values()]) {
+      if (!sameAddress(guard.target, from)) continue;
+      this.guards.delete(guard.key);
+      guard.target = { host: to.host, port: to.port };
+      guard.key = stopKey(guard.target, guard.objnam, guard.attr);
+      if (!this.guards.has(guard.key)) {
+        this.guards.set(guard.key, guard);
+        moved += 1;
+      }
+    }
+    if (moved > 0) {
+      this.logger.warn(`IntelliCenter: ${moved} stop(s) kept follow the panel to its new address`);
+      this.armStopCheck(0, to);
+      this.persistStops().catch(() => {});
+    }
+  }
+
   /**
    * A stop clicked: queued before anything (it ends a read or a command on the
    * line), answered by 4.3 s after the click.
@@ -1550,6 +1624,10 @@ export class IntelliCenterApp {
     await this.bounded(this.loadMemory(), TIMINGS.stopSaveWait);
     const target = this.stopTarget();
     if (!target) {
+      // Kept in memory: sent first as soon as an address is known.
+      if (!this.addressless.some((s) => s.objnam === spec.objnam && s.attr === spec.attr)) {
+        this.addressless.push(spec);
+      }
       throw this.refusal(ERRORS.noAddress);
     }
     const job = this.queueStop({ target, specs: [spec], received });
@@ -1612,7 +1690,7 @@ export class IntelliCenterApp {
             await this.sendStop(job);
           } catch (err) {
             this.logger.warn(`IntelliCenter: stop failed: ${err.message}`);
-            this.armStopCheck(SECOND);
+            this.armStopCheck(SECOND, job.target);
           }
           this.stops.shift();
           job.resolve();
@@ -1634,8 +1712,15 @@ export class IntelliCenterApp {
       written: false,
       sentAt: undefined,
       resends: 0,
+      /** Refusals of the panel in a row (a code other than 200), and the last code. */
+      refusals: 0,
+      refusedCode: undefined,
+      /** Never written again before this (monotonic): 15 s after a write, more after refusals. */
+      nextTryAt: -Infinity,
       /** Seen applied by the last read (a late command may still undo it). */
       applied: false,
+      /** A heat stop: the mode Off shown while the body still heats, since (monotonic). */
+      heatingSince: undefined,
       /** What the last read said of it (src: decideStop). */
       decision: undefined,
       /** Until then, a command that left before the stop may still land: watched. */
@@ -1649,46 +1734,81 @@ export class IntelliCenterApp {
   }
 
   /**
-   * What a read says of a stop: 'done' (the panel shows it), 'watch' (shown,
-   * but a command sent shortly before the stop may still land: read again),
-   * 'wait' (read too soon after the stop left), 'resend' (not shown, or not
-   * readable: written again, in doubt), 'hold' (written 4 times without
-   * effect: held, said in the status, no more writes until a new click).
+   * What a read says of a stop (`values`: the object read, or undefined):
+   * 'done' (the panel shows it), 'watch' (shown, but a command sent shortly
+   * before the stop may still land: read again), 'heating' (a heat stop: the
+   * mode Off shown but the body still heats: watched, nothing written),
+   * 'wait' (read too soon after the stop left), 'later' (not shown, but
+   * written less than 15 s ago, or refused not long ago), 'resend' (not
+   * shown, or not readable: written again, in doubt), 'hold' (written 4 times
+   * without effect: held, said in the status, no more writes until a new
+   * click).
    */
-  decideStop(guard, value, readStartedAt) {
-    guard.decision = this.decide(guard, value, readStartedAt);
+  decideStop(guard, values, readStartedAt) {
+    guard.decision = this.decide(guard, values, readStartedAt);
     return guard.decision;
   }
 
-  decide(guard, value, readStartedAt) {
-    if (value === guard.value) {
+  decide(guard, values, readStartedAt) {
+    const mono = this.mono();
+    if (values?.[guard.attr] === guard.value) {
+      // A heat stop is applied only once the body no longer heats (HTMODE 0):
+      // the mode Off alone may not stop a heater on every firmware.
+      if (guard.attr === 'MODE' && integerOf(values.HTMODE) !== 0) {
+        guard.applied = false;
+        guard.heatingSince ??= mono;
+        return 'heating';
+      }
       guard.applied = true;
-      return this.mono() < guard.watchUntil ? 'watch' : 'done';
+      guard.heatingSince = undefined;
+      return mono < guard.watchUntil ? 'watch' : 'done';
     }
     guard.applied = false;
+    guard.heatingSince = undefined;
     if (!guard.written) {
       return 'resend';
     }
     if (guard.sentAt !== undefined && readStartedAt < guard.sentAt + TIMINGS.stopApplyDelay) {
       return 'wait';
     }
-    return guard.resends >= TIMINGS.stopResends ? 'hold' : 'resend';
+    if (guard.resends >= TIMINGS.stopResends) {
+      return 'hold';
+    }
+    return mono < guard.nextTryAt ? 'later' : 'resend';
   }
 
-  /** A read (poll) seen by the stops of its address: applied, or checked now. */
+  /** A stop written (bytes left): never written again before 15 s. */
+  noteWritten(guard, at) {
+    guard.written = true;
+    guard.sentAt = at;
+    guard.nextTryAt = at + TIMINGS.stopCheck;
+  }
+
+  /** The panel accepted the write (200). */
+  noteAccepted(guard) {
+    guard.refusals = 0;
+    guard.refusedCode = undefined;
+  }
+
+  /** The panel refused the write: not applied, written again later and later (15 s .. 5 min). */
+  noteRefused(guard, err) {
+    guard.sentAt = undefined;
+    guard.refusals += 1;
+    guard.refusedCode = err?.code ?? '?';
+    const wait = Math.min(TIMINGS.stopRefusedMax, TIMINGS.stopCheck * 2 ** (guard.refusals - 1));
+    guard.nextTryAt = this.mono() + wait;
+  }
+
+  /** A read (poll) seen by the stops of its address: applied, or checked now when one is due. */
   observeStops(objects, startedAt, address) {
     let check = false;
     for (const guard of [...this.guards.values()]) {
       if (!sameAddress(guard.target, address)) continue;
-      const decision = this.decideStop(
-        guard,
-        objects?.get(guard.objnam)?.values[guard.attr],
-        startedAt,
-      );
+      const decision = this.decideStop(guard, objects?.get(guard.objnam)?.values, startedAt);
       if (decision === 'done') this.dropGuard(guard, 'applied');
       else if (decision === 'resend') check = true;
     }
-    if (check && !this.checking) this.armStopCheck(0);
+    if (check && !this.checking.has(addressKey(address))) this.armStopCheck(0, address);
   }
 
   /** The SETPARAMLIST of these stops. */
@@ -1728,9 +1848,11 @@ export class IntelliCenterApp {
         this.guards.set(key, guard);
       }
       if (!job.fromBoot) {
-        // A new click: its writes are counted anew.
+        // A new click: its writes are counted anew, written now.
         guard.since = this.now();
         guard.resends = 0;
+        guard.refusals = 0;
+        guard.nextTryAt = -Infinity;
       }
       // A command that left shortly before this click may land after it: watched.
       guard.watchUntil = Math.max(
@@ -1767,14 +1889,14 @@ export class IntelliCenterApp {
             this.lastSentAt = at;
             written = true;
             sentGuards = live;
-            for (const g of live) {
-              g.written = true;
-              g.sentAt = at;
-            }
+            for (const g of live) this.noteWritten(g, at);
           },
         });
         failure = undefined;
-        for (const g of live) if (resendOnBoot.has(g)) g.resends += 1;
+        for (const g of live) {
+          this.noteAccepted(g);
+          if (resendOnBoot.has(g)) g.resends += 1;
+        }
         // Read back once the panel had time to apply it (within the ack budget).
         await this.sleep(
           Math.min(TIMINGS.applyWait, job.received + TIMINGS.commandAnswerBy - 600 - this.mono()),
@@ -1793,8 +1915,8 @@ export class IntelliCenterApp {
       } catch (err) {
         failure = err;
         if (err.kind === ERROR_KINDS.REFUSED) {
-          // Answered with a refusal: not applied, the next read need not wait for it.
-          for (const g of live) g.sentAt = undefined;
+          // Answered with a refusal: not applied, written again later.
+          for (const g of live) this.noteRefused(g, err);
         }
       } finally {
         holder.release();
@@ -1818,7 +1940,7 @@ export class IntelliCenterApp {
         continue;
       }
       const decision = back
-        ? this.decideStop(guard, back.get(guard.objnam)?.values[guard.attr], Infinity)
+        ? this.decideStop(guard, back.get(guard.objnam)?.values, Infinity)
         : undefined;
       if (decision === 'done') {
         this.dropGuard(guard, 'applied', { quiet: true });
@@ -1828,6 +1950,8 @@ export class IntelliCenterApp {
       keep = true;
       if (decision === 'watch') {
         job.results.set(key, {});
+      } else if (decision === 'heating') {
+        job.results.set(key, { error: this.refusal(ERRORS.stopStillHeating) });
       } else if (failure && !sentGuards.includes(guard)) {
         job.results.set(key, { error: this.refusal(ERRORS.stopNotSent(errorReason(failure))) });
       } else if (failure?.kind === ERROR_KINDS.REFUSED) {
@@ -1842,7 +1966,7 @@ export class IntelliCenterApp {
     }
     // Armed before /data is written, never awaited: a hung disk never stops
     // the checks nor holds the next click behind this one.
-    if (keep) this.armStopCheck(this.nextCheckDelay());
+    if (keep) this.armStopCheck(this.nextCheckDelay(target), target);
     this.persistStops().catch(() => {});
     if (written) this.followUp();
     if (!failure && back) this.logger.info('IntelliCenter: stop sent and read back');
@@ -1859,17 +1983,21 @@ export class IntelliCenterApp {
     );
   }
 
-  /** The delay of the next check, from what the guards wait for. */
-  nextCheckDelay() {
+  /** The delay of the next check of an address, from what its stops wait for (15 s at most). */
+  nextCheckDelay(target) {
     let delay = TIMINGS.stopCheck;
     const mono = this.mono();
     for (const g of this.guards.values()) {
+      if (!sameAddress(g.target, target)) continue;
       // Only what the last read said: 'watch' (read again at the end of the
-      // watch) or 'wait' (read too soon after the write); else every 15 s.
+      // watch), 'wait' (read too soon after the write), 'later' (written again
+      // at its time); else every 15 s.
       if (g.decision === 'watch' && mono < g.watchUntil) {
         delay = Math.min(delay, Math.max(0, g.watchUntil - mono + 1));
       } else if (g.decision === 'wait' && g.sentAt !== undefined) {
         delay = Math.min(delay, Math.max(0, g.sentAt + TIMINGS.stopApplyDelay - mono));
+      } else if (g.decision === 'later') {
+        delay = Math.min(delay, Math.max(SECOND, g.nextTryAt - mono));
       }
     }
     return delay;
@@ -1877,23 +2005,22 @@ export class IntelliCenterApp {
 
   /**
    * The periodic check of the stops of one address: reads their objects, then
-   * writes again only those `decideStop` says, in one SETPARAMLIST. It gives
-   * its turn up to a click or a command (tried again a second later), and
-   * checks once more right before its write.
+   * writes again only those `decideStop` says, in one SETPARAMLIST. Each
+   * address has its own check and its own pace. It gives its turn up to a
+   * click or a command (tried again a second later), and checks once more
+   * right before its write. It arms no follow-up read.
    */
-  async runCheck() {
-    if (this.guards.size === 0) return;
-    if (this.checkMustYield() || this.checking) {
-      this.armStopCheck(SECOND);
+  async runCheck(target) {
+    const at = addressKey(target);
+    const guards = [...this.guards.values()].filter((g) => sameAddress(g.target, target));
+    if (guards.length === 0) return;
+    if (this.checkMustYield() || this.checking.has(at)) {
+      this.armStopCheck(SECOND, target);
       return;
     }
-    this.checking = true;
-    const first = this.guards.values().next().value;
-    const target = first.target;
-    const guards = [...this.guards.values()].filter((g) => sameAddress(g.target, target));
+    this.checking.add(at);
     const decisions = new Map();
     let yielded = false;
-    let written = false;
     let holder;
     try {
       // Every exit of the check ends below: let go on 'done', the next check armed, /data.
@@ -1914,12 +2041,12 @@ export class IntelliCenterApp {
           );
         } catch (err) {
           if (err.kind === ERROR_KINDS.ABORTED) throw err;
-          // Nothing readable: written again, in doubt (the write is the stop).
+          // Nothing readable: written again when due, in doubt (the write is the stop).
           read = undefined;
         }
         for (const g of guards) {
           if (!this.current(g)) continue;
-          decisions.set(g, this.decideStop(g, read?.get(g.objnam)?.values[g.attr], startedAt));
+          decisions.set(g, this.decideStop(g, read?.get(g.objnam)?.values, startedAt));
         }
         let resend = guards.filter((g) => decisions.get(g) === 'resend');
         if (resend.length === 0) return;
@@ -1937,13 +2064,9 @@ export class IntelliCenterApp {
               this.logger.warn(
                 `IntelliCenter: ${resend.length} stop(s) not shown by the panel: written again`,
               );
-              const at = this.mono();
-              written = true;
-              this.lastSentAt = at;
-              for (const g of resend) {
-                g.written = true;
-                g.sentAt = at;
-              }
+              const now = this.mono();
+              this.lastSentAt = now;
+              for (const g of resend) this.noteWritten(g, now);
             },
           });
         } catch (err) {
@@ -1952,12 +2075,15 @@ export class IntelliCenterApp {
             return;
           }
           if (err.kind === ERROR_KINDS.REFUSED) {
-            for (const g of resend) g.sentAt = undefined;
+            for (const g of resend) this.noteRefused(g, err);
           }
           throw err;
         }
         // Accepted by the panel: a resend (a refusal or a silence is not one).
-        for (const g of resend) if (wasWritten.has(g)) g.resends += 1;
+        for (const g of resend) {
+          this.noteAccepted(g);
+          if (wasWritten.has(g)) g.resends += 1;
+        }
         await this.sleep(TIMINGS.applyWait, holder.signal);
         try {
           const back = await this.readBack(
@@ -1968,8 +2094,7 @@ export class IntelliCenterApp {
           );
           for (const g of resend) {
             if (!this.current(g)) continue;
-            const after = this.decideStop(g, back.get(g.objnam)?.values[g.attr], Infinity);
-            if (after === 'done' || after === 'watch') decisions.set(g, after);
+            decisions.set(g, this.decideStop(g, back.get(g.objnam)?.values, Infinity));
           }
         } catch (err) {
           if (err.kind === ERROR_KINDS.ABORTED) throw err;
@@ -1981,18 +2106,13 @@ export class IntelliCenterApp {
       }
     } finally {
       holder?.release();
-      this.checking = false;
+      this.checking.delete(at);
     }
-    if (written) this.followUp();
     for (const [g, decision] of decisions) {
       if (decision === 'done' && this.current(g)) this.dropGuard(g, 'applied', { quiet: true });
     }
-    // Armed before /data is written (a hung disk never stops the checks); the
-    // stops of another address are checked right after.
-    const others = [...this.guards.values()].some((g) => !sameAddress(g.target, target));
-    if (this.guards.size > 0) {
-      this.armStopCheck(yielded ? SECOND : others ? 0 : this.nextCheckDelay());
-    }
+    // Armed before /data is written (a hung disk never stops the checks).
+    this.armStopCheck(yielded ? SECOND : this.nextCheckDelay(target), target);
     this.persistStops().catch(() => {});
     this.updateStatus().catch(() => {});
   }
@@ -2001,10 +2121,11 @@ export class IntelliCenterApp {
     if (!this.current(guard)) return;
     this.guards.delete(guard.key);
     this.logger.info(`IntelliCenter: stop of ${guard.objnam} let go (${reason})`);
-    if (this.guards.size === 0 && this.checkTimer) {
-      this.timers.clearTimeout(this.checkTimer);
-      this.checkTimer = undefined;
-      this.checkDueAt = Infinity;
+    const at = addressKey(guard.target);
+    const check = this.checks.get(at);
+    if (check && !this.stopAddresses().some((t) => addressKey(t) === at)) {
+      this.timers.clearTimeout(check.timer);
+      this.checks.delete(at);
     }
     if (!quiet) {
       this.persistStops().catch(() => {});
@@ -2012,20 +2133,31 @@ export class IntelliCenterApp {
     }
   }
 
-  /** The next check of the stops: every 15 s, whatever the interval or the failures. */
-  armStopCheck(delay = TIMINGS.stopCheck) {
-    if (this.guards.size === 0) return;
-    const dueAt = this.mono() + delay;
-    if (this.checkTimer) {
-      // A check already due sooner is never pushed back.
-      if (this.checkDueAt <= dueAt) return;
-      this.timers.clearTimeout(this.checkTimer);
+  /**
+   * The next check of the stops of `target` (every address with stops when
+   * omitted): every 15 s, whatever the interval or the failures; a check
+   * already due sooner is never pushed back.
+   */
+  armStopCheck(delay = TIMINGS.stopCheck, target = undefined) {
+    if (!target) {
+      for (const t of this.stopAddresses()) this.armStopCheck(delay, t);
+      return;
     }
-    this.checkDueAt = dueAt;
-    this.checkTimer = this.timers.setTimeout(() => {
-      this.checkTimer = undefined;
-      this.checkDueAt = Infinity;
-      this.runCheck().catch((err) => this.logger.warn(`IntelliCenter: check: ${err.message}`));
+    if (!this.guards.size || !this.stopAddresses().some((t) => sameAddress(t, target))) return;
+    const at = addressKey(target);
+    const dueAt = this.mono() + delay;
+    const current = this.checks.get(at);
+    if (current) {
+      if (current.dueAt <= dueAt) return;
+      this.timers.clearTimeout(current.timer);
+    }
+    const check = { dueAt, timer: undefined };
+    check.timer = this.timers.setTimeout(() => {
+      if (this.checks.get(at) === check) this.checks.delete(at);
+      this.runCheck(target).catch((err) =>
+        this.logger.warn(`IntelliCenter: check: ${err.message}`),
+      );
     }, delay);
+    this.checks.set(at, check);
   }
 }

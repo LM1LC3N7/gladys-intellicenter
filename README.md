@@ -34,11 +34,12 @@ Gladys ⇄ SDK ⇄ src/handlers.js ⇄ src/app.js (IntelliCenterApp)
 - **Device**: `ext:<selector>:intellicenter:<id>`, `id` a hash of the system
   `SNAME`; features `<kind>-<objnam>`, kept even when the panel no longer
   shows the object.
-- **Stops** (a circuit `STATUS` OFF, a body heat `MODE` 1): never behind an
-  option, a read, a command or the configuration; on a new connection; kept
-  in `/data` until seen applied, checked every 15 s and at every read,
-  written again 3 times at most (writes the panel accepted), never let go by
-  time.
+- **Stops** (a circuit `STATUS` OFF, a body heat `MODE` 1 seen with
+  `HTMODE` 0): never behind an option, a read, a command or the
+  configuration; on a new connection; kept in `/data` until seen applied,
+  checked every 15 s (one check per address) and at every read, written again
+  15 s after each write, 3 times at most (writes the panel accepted);
+  refusals spaced up to 5 min, never counted; never let go by time.
 - **Commands** (a circuit on, a heat source, a set point): behind
   `allow_circuits`, `allow_lights`, `allow_heating` (off), checked again in
   `beforeSend`, decided on a fresh read, set points bounded on the degree

@@ -26,3 +26,7 @@ the notes of the version's GitHub Release.
   point) behind three options, off by default; a spa never above 40 °C, a pool
   never above its ceiling (35 °C by default), on the degree written.
 - "Test the connection" button, docs in English and French.
+- A heating stop is confirmed only once the body no longer heats; the status
+  says when the mode Off is shown while it still heats. Circuit groups need
+  the heating option. Stops kept for several addresses are each checked;
+  refused stops are written again less and less often (up to every 5 min).

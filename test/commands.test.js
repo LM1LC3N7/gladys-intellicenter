@@ -38,7 +38,7 @@ test('a light needs "lights" only, a circuit "circuits" only', async () => {
 test('a body circuit whose heat mode is not off needs "heating" too', async () => {
   const t = await setup({ config: { host: HOST, allow_circuits: true } });
   // The spa (C0001, body B1202) heats with its heater: refused.
-  refused(await t.press('circuit-C0001', 'on'), /lancerait son chauffage/);
+  refused(await t.press('circuit-C0001', 'on'), /peut lancer le chauffage/);
   assert.equal(t.panel.sets().length, 0);
   // Its heat mode off at the panel: allowed (decided on the fresh read).
   t.panel.objects.B1202.MODE = '1';
@@ -47,7 +47,7 @@ test('a body circuit whose heat mode is not off needs "heating" too', async () =
   // The heat mode cannot be read: in doubt, heating needed.
   t.panel.objects.C0001.STATUS = 'OFF';
   delete t.panel.objects.B1202.MODE;
-  refused(await t.press('circuit-C0001', 'on'), /lancerait son chauffage/);
+  refused(await t.press('circuit-C0001', 'on'), /peut lancer le chauffage/);
 });
 
 test('an option turned off between the fresh read and the write: nothing written', async () => {

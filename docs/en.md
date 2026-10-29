@@ -57,24 +57,34 @@ restart is sent again as soon as the container starts. A command that
 arrived before it and has not left yet is given up. Several stops clicked
 together go in one write.
 
-It succeeds when the read back of the panel shows it. Otherwise the answer
-says why, and the stop is kept (in `/data`) and checked every 15 s and at
-every read:
+It succeeds when the read back of the panel shows it (for the heating stop:
+the mode Off **and** no heating any more). Otherwise the answer says why, and
+the stop is kept (in `/data`) and checked every 15 s (each panel address has
+its own check) and at every read:
 
 - **no address known** (no configuration, no panel read before): nothing is
-  sent (the only refusal);
-- **the panel does not answer** (3 s of tries, every 250 ms): tried again
-  every 15 s and when you click **Test the connection**; a stop that never
-  left is never given up;
-- **refused by the panel** (a code other than 200): written again every
-  15 s (a refusal does not count as a write);
-- **not applied yet** (the panel does not show it): written again 3 times at
-  most (writes the panel accepted), then held without new writes, which the
-  status of the integration says;
-- **without confirmation** in time (4.3 s): checked the same way.
+  sent for now; the stop is kept in memory and goes first as soon as an
+  address is known;
+- **the panel does not answer** (3 s of tries, every 250 ms): tried again at
+  every check (15 s), at every read that reaches the panel and when you click
+  **Test the connection**; a stop that never left is never given up;
+- **refused by the panel** (a code other than 200): written again after
+  15 s, then less and less often (30 s, 1, 2, 4 min, then every 5 min),
+  without end; a refusal does not count as a write;
+- **not applied yet** (the panel does not show it): written again 15 s after
+  each write, 3 times at most (writes the panel accepted), then held without
+  new writes, which the status of the integration says;
+- **without confirmation** in time (4.3 s): checked the same way;
+- **heating stop shown but the body still heats** (the panel shows the mode
+  Off but still reports heating): watched, nothing written again; normal
+  during a cool-down, but after 2 minutes the status asks you to check on
+  the panel (the mode Off written comes from pyintellicenter and was not
+  checked on a real panel).
 
 The status of the integration says where each stop is: not sent yet, sent
-and waiting for the read back, held, or watched.
+and waiting for the read back, refused (with the code), held, still heating,
+or watched. When the panel moves to a new address (the same panel read
+there), its kept stops follow it.
 
 A kept stop is let go when the panel shows it, or when a command of the same
 setting clicked in Gladys after it (option on) left without a refusal of the
@@ -82,8 +92,8 @@ panel (no answer lets it go too: the command may have been applied). A new
 click on Off writes it again and counts its writes anew. Never by time. A
 command that left less than 30 s before the stop and lands after it is
 countered by a new write. While the heating stop of a body is not seen
-applied, its set point and turning its circuit on (if that would heat) are
-refused.
+applied, its set point, turning its circuit on (if that would heat) and
+turning a circuit group on are refused.
 
 ## Turning on and heating (options)
 
@@ -92,7 +102,9 @@ Three options, **off by default**:
 - **Allow turning circuits and pumps on**: the circuits that are not lights
   (pool, spa and their pumps, featured circuits). Turning on a pool or spa
   whose heat mode is not seen Off also needs the heating option (its pump
-  starts, and with it its heating).
+  starts, and with it its heating). A **circuit group** ("Spa Mode"...) may
+  turn a body on: it needs the heating option while a body does not have its
+  heat mode seen Off.
 - **Allow turning lights on**.
 - **Allow heating**: choosing a heat source, setting the set point. A **spa
   is limited to 40 °C**, a pool to the ceiling of the configuration (35 °C by
@@ -114,8 +126,8 @@ stop was clicked meanwhile.
 - The panel is never read sooner than the interval: not by the **Test the
   connection** button, a Discovery, a reconnection to Gladys or a restart (the
   time of the last read is kept in `/data`). Only the reads that follow a
-  command (5 and 20 s) and the checks of a kept stop (every 15 s) are an
-  exception.
+  command or a click on Off (5 and 20 s) and the checks of a kept stop (every
+  15 s, reading only the objects of the stop) are an exception.
 - A value older than 2 minutes is never sent again as new.
 - The chemistry set points (pH, ORP), the pump speeds, light shows and
   schedules are read only or absent in this version.

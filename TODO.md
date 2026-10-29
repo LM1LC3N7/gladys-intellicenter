@@ -52,6 +52,17 @@ up to date at the end of every milestone.
 
 ## Decisions
 
+- **Review r1 (2026-10-29)**: B1 one check per address (the stops of an old
+  address looped, those of the new one were never written; the same panel at
+  a new address takes its stops along). I1 a stop written again at most every
+  15 s (follow-up reads no longer rewrite it, the checks arm no follow-up),
+  refusals spaced up to 5 min. I2 heat stop applied only with `HTMODE` 0.
+  I3 circuit groups behind heating. I4 tests for the bounded /data wait of
+  the stop, the °F ceiling rounded down, the stop first on the line. m1 the
+  status says "refused (code)"; m2 /data bounded (load 2 s, saves 2 s), a stop
+  clicked without an address kept and sent first; m3 a failed save of the
+  stops tried again. Reviewer mutants M2 and M24 left: equivalent (as r1 said).
+
 - **Version 0.1.0 set by hand** in `package.json`, `package-lock.json`, the
   manifest and the `docker_image` tag
   (`ghcr.io/lm1lc3n7/gladys-intellicenter:0.1.0`): the first Release (patch)
@@ -70,16 +81,33 @@ up to date at the end of every milestone.
   connection waits for the panel's side (FIN, 300 ms at most) before a new
   one.
 - **The stops**: a circuit off (`STATUS` OFF) and a heat mode off (`MODE`
-  "1"). Every stop goes on a new connection (an idle one may be half-open).
-  Tried every 250 ms for 3 s, then kept in `/data` and checked every 15 s and
-  at every read (follow-up reads 5 and 20 s after a write included): a stop
-  the panel accepted (200) without effect is written 3 more times, then held
-  until a new click, the panel showing it, or a newer command of the same
-  setting that left (200 or no answer; a refusal keeps the stop). A refusal
-  (code other than 200), a silence or a cut never count as a write. At a
-  restart, the stops not held are sent at once to their address (from
-  `/data`); held ones only checked. A command sent less than 30 s before the
-  stop is watched for (the stop written again if it lands).
+  "1", applied only when `HTMODE` reads 0). Every stop goes on a new
+  connection (an idle one may be half-open). Tried every 250 ms for 3 s,
+  then kept in `/data` and checked every 15 s, each address on its own check
+  (the stops of an old address never hold back those of the new one), and
+  at every read: a stop the panel accepted (200) without effect is written
+  again 15 s after each write, 3 times at most, then held until a new click,
+  the panel showing it, or a newer command of the same setting that left
+  (200 or no answer; a refusal keeps the stop). A refusal (code other than 200) never counts as a write: written again after 15 s, 30 s, 1, 2, 4 min,
+  then every 5 min, without end. A silence or a cut never count either; a
+  stop that never left is tried at every check and every read that reaches
+  the panel. The checks arm no follow-up read. At a restart, the stops not
+  held are sent at once to their address (from `/data`); held ones only
+  checked. The same panel (same id) read at a new address takes its kept
+  stops along. A stop clicked while no address is known is kept in memory
+  and sent first once one is. A command sent less than 30 s before the stop
+  is watched for (the stop written again if it lands).
+- **Heat stop and `HTMODE`**: `MODE` "1" comes from pyintellicenter
+  (`HeaterType.OFF`), whose own changelog says heater actuation is not
+  validated. So the heat stop is "applied" only when `MODE` is "1" and
+  `HTMODE` is 0 (`is_body_heating`); `MODE` "1" with heating still reported
+  is watched (nothing written again: the mode is shown Off), said in the
+  status as a cool-down for 2 minutes, then as "check on the panel". The
+  body `HEATER` attribute is never written without evidence (review r1, I2).
+- **/data**: a load that does not end in 2 s is unreadable (never
+  overwritten); the saves on the path of a read or a start are not awaited
+  more than 2 s; a save of the stops that failed is tried again (compared
+  with the last one that succeeded).
 - **Heating set point**: always behind "Allow heating", including a decrease
   (the protective path is the heat mode Off). Refused while the heat stop of
   its body is not seen applied (a side effect that could restart heating), as
@@ -102,8 +130,11 @@ up to date at the end of every milestone.
   unclear in metric mode), the saturation index (0 is valid and
   "unavailable"), pump GPM.
 - **Shown circuits**: body circuits, lights (`LIGHT_SUBTYPES` + `LITSHO`) and
-  featured ones (`FEATR` ON). A circuit group featured is a circuit
-  ("circuits and pumps").
+  featured ones (`FEATR` ON). A circuit group (`CIRCGRP`, "Spa Mode") may
+  turn a body and its heating on: its members are not read, so it needs
+  "Allow heating" too unless every body is seen with its heat mode "1" on the
+  fresh read, and it is refused during the heat stop of any body (review r1,
+  I3). Reading the `CIRCGRP` rows to narrow this is for later.
 - **Mutation check** (2026-10-29): 46 mutants of the guards (seq of the
   stops, options on arrival and in `beforeSend`, deadline, heating side
   effect, stop in progress, identity, read back, resend counts, hold, wait,

@@ -48,6 +48,7 @@ export async function setup({
   devices = [],
 } = {}) {
   const dev = panel ?? fakePanel({ timers: clock.timers });
+  dev.clockNow ??= () => clock.elapsed;
   const gladys = createFakeGladys({ config, devices });
   let left = getConfigFails;
   let calls = 0;
