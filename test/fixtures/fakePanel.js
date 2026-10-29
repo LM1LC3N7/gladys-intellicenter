@@ -256,7 +256,10 @@ export function fakePanel(options = {}) {
     };
     panel.timers.setTimeout(() => {
       if (socket.destroyed) return;
-      if (panel.down || !panel.hostOk(host, port)) {
+      const ok = panel.hostOk(host, port);
+      // 'hang': a dead address, the connection never opens nor fails.
+      if (ok === 'hang') return;
+      if (panel.down || !ok) {
         socket.destroyed = true;
         socket.emit('error', new Error('ECONNREFUSED'));
         socket.emit('close');

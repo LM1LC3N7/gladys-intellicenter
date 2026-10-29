@@ -83,7 +83,9 @@ dit pourquoi, et l'arrêt est gardé (dans `/data`) et vérifié toutes les 15 s
   n'est réécrit ; c'est normal pendant un refroidissement, mais au-delà de
   2 minutes l'état de l'intégration demande de vérifier sur le panneau (le
   mode Arrêt écrit vient de pyintellicenter et n'a pas été vérifié sur un
-  vrai panneau).
+  vrai panneau) ; si le panneau ne donne pas son état de chauffe, l'état de
+  l'intégration le dit (« état de chauffe illisible ») et l'arrêt reste
+  surveillé.
 
 L'état de l'intégration dit où en est chaque arrêt : pas encore envoyé,
 envoyé en attente de relecture, refusé (avec le code), tenu, chauffe encore,
@@ -97,8 +99,9 @@ s'appliquer). Un nouveau clic sur Arrêt le réécrit et recompte ses écritures
 Jamais par le temps. Une commande partie moins de 30 s avant l'arrêt et
 appliquée après lui est contrée par une nouvelle écriture. Tant que l'arrêt
 du chauffage d'un bassin n'est pas vu appliqué, sa consigne, la mise en
-marche de son circuit (si elle chaufferait) et celle d'un groupe de circuits
-sont refusées.
+marche de son circuit et celle d'un groupe de circuits sont refusées. Un
+bassin « chauffe » tant que son mode n'est pas vu sur Arrêt **ou** que le
+panneau signale encore une chauffe (illisible compte comme chauffe).
 
 ## Mettre en marche et chauffer (options)
 
@@ -106,11 +109,12 @@ Trois options, **désactivées par défaut** :
 
 - **Autoriser la mise en marche des circuits et pompes** : les circuits qui
   ne sont pas des éclairages (piscine, spa et leurs pompes, circuits mis en
-  avant). Mettre en marche une piscine ou un spa dont le mode de chauffage
-  n'est pas vu sur Arrêt exige aussi l'option chauffage (sa pompe démarre,
-  et avec elle son chauffage). Un **groupe de circuits** (« Spa Mode »…) peut
-  allumer un bassin : il exige l'option chauffage tant qu'un des bassins n'a
-  pas son mode de chauffage vu sur Arrêt.
+  avant). Mettre en marche une piscine ou un spa qui chauffe (mode de
+  chauffage pas vu sur Arrêt, ou chauffe encore signalée) exige aussi
+  l'option chauffage (sa pompe démarre, et avec elle son chauffage). Un
+  **groupe de circuits** (« Spa Mode »…) peut allumer un bassin : il exige
+  l'option chauffage tant qu'un des bassins chauffe ou qu'aucun bassin n'a
+  encore été lu.
 - **Autoriser l'allumage des éclairages**.
 - **Autoriser le chauffage** : choisir une source de chauffage, régler la
   consigne. Un **spa est limité à 40 °C**, une piscine au plafond de la

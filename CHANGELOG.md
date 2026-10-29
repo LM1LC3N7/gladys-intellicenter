@@ -30,3 +30,6 @@ the notes of the version's GitHub Release.
   says when the mode Off is shown while it still heats. Circuit groups need
   the heating option. Stops kept for several addresses are each checked;
   refused stops are written again less and less often (up to every 5 min).
+- A slow /data is applied when its read ends (its kept stops sent); a body
+  still reporting heating counts as heating; a command never waits behind a
+  check of the stops.

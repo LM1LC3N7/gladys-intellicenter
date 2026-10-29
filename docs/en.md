@@ -79,7 +79,9 @@ its own check) and at every read:
   Off but still reports heating): watched, nothing written again; normal
   during a cool-down, but after 2 minutes the status asks you to check on
   the panel (the mode Off written comes from pyintellicenter and was not
-  checked on a real panel).
+  checked on a real panel); when the panel gives no heating state, the
+  status says so ("heating state cannot be read") and the stop stays
+  watched.
 
 The status of the integration says where each stop is: not sent yet, sent
 and waiting for the read back, refused (with the code), held, still heating,
@@ -92,8 +94,9 @@ panel (no answer lets it go too: the command may have been applied). A new
 click on Off writes it again and counts its writes anew. Never by time. A
 command that left less than 30 s before the stop and lands after it is
 countered by a new write. While the heating stop of a body is not seen
-applied, its set point, turning its circuit on (if that would heat) and
-turning a circuit group on are refused.
+applied, its set point, turning its circuit on and turning a circuit group
+on are refused. A body "heats" while its heat mode is not seen Off **or**
+the panel still reports heating (unreadable counts as heating).
 
 ## Turning on and heating (options)
 
@@ -101,10 +104,10 @@ Three options, **off by default**:
 
 - **Allow turning circuits and pumps on**: the circuits that are not lights
   (pool, spa and their pumps, featured circuits). Turning on a pool or spa
-  whose heat mode is not seen Off also needs the heating option (its pump
-  starts, and with it its heating). A **circuit group** ("Spa Mode"...) may
-  turn a body on: it needs the heating option while a body does not have its
-  heat mode seen Off.
+  that heats (heat mode not seen Off, or heating still reported) also needs
+  the heating option (its pump starts, and with it its heating). A **circuit
+  group** ("Spa Mode"...) may turn a body on: it needs the heating option
+  while a body heats or no body has been read yet.
 - **Allow turning lights on**.
 - **Allow heating**: choosing a heat source, setting the set point. A **spa
   is limited to 40 °C**, a pool to the ceiling of the configuration (35 °C by

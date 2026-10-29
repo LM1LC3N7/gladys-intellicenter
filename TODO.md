@@ -52,6 +52,18 @@ up to date at the end of every milestone.
 
 ## Decisions
 
+- **Review r2 (2026-10-29)**: B1 a /data load slower than 2 s is no longer
+  dropped: nothing waits for it past 2 s, and when it ends it is applied
+  (its stops kept and the unheld sent, `target` and `lastAttemptAt` taken,
+  writes allowed again); only a read error or invalid JSON is unreadable.
+  I1 a body circuit heats while its heat mode is not seen "1" or `HTMODE`
+  is not 0 (unreadable = heats), and is refused during the heat stop of its
+  body whatever is read (groups: any heat stop). I2 tests for groups during a
+  heat stop and before any read. m1 an unreadable `HTMODE` said as such in the
+  status. m2 a command takes the line from a check of the stops (a dead old
+  address never makes a command miss its turn). m3 the answer of a stop is
+  found by its setting, not by an address that may change meanwhile.
+
 - **Review r1 (2026-10-29)**: B1 one check per address (the stops of an old
   address looped, those of the new one were never written; the same panel at
   a new address takes its stops along). I1 a stop written again at most every
@@ -104,8 +116,8 @@ up to date at the end of every milestone.
   is watched (nothing written again: the mode is shown Off), said in the
   status as a cool-down for 2 minutes, then as "check on the panel". The
   body `HEATER` attribute is never written without evidence (review r1, I2).
-- **/data**: a load that does not end in 2 s is unreadable (never
-  overwritten); the saves on the path of a read or a start are not awaited
+- **/data**: a load that does not end in 2 s counts as unreadable (never
+  overwritten) until it ends, then is applied; the saves on the path of a read or a start are not awaited
   more than 2 s; a save of the stops that failed is tried again (compared
   with the last one that succeeded).
 - **Heating set point**: always behind "Allow heating", including a decrease

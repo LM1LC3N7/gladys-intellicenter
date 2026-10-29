@@ -7,7 +7,8 @@
 // Priorities: the stop (3) first, then a command (2), the check of a stop
 // (1), the reads of the polling (0); in the order of arrival within one. A
 // stop arriving aborts whatever holds the line (a read stuck on a silent
-// panel, a command) and takes it as soon as that connection is closed.
+// panel, a command) and takes it as soon as that connection is closed; a
+// command arriving aborts a check of the stops (tried again a second later).
 // -----------------------------------------------------------------------------
 
 import { ERROR_KINDS, PanelError } from './ic/client.js';
@@ -53,7 +54,13 @@ export class Lane {
       // In priority order, first come first served within one.
       const at = this.waiting.findIndex((w) => w.priority < priority);
       this.waiting.splice(at < 0 ? this.waiting.length : at, 0, waiter);
-      if (kind === 'stop' && this.holder && this.holder.kind !== 'stop') {
+      // A stop ends whatever holds the line; a command ends a check of the
+      // stops (a check of a dead address never makes a command miss its turn).
+      if (
+        this.holder &&
+        ((kind === 'stop' && this.holder.kind !== 'stop') ||
+          (kind === 'command' && this.holder.kind === 'check'))
+      ) {
         this.holder.controller.abort();
       }
       this.grant();

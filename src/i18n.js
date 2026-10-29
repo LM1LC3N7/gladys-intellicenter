@@ -151,6 +151,10 @@ export const T = {
         'mode Off shown, the body still heats (cool-down): watched',
         'mode Arrêt affiché, le bassin chauffe encore (refroidissement) : surveillé',
       ),
+      heatUnknown: both(
+        'mode Off shown, the heating state cannot be read: check on the panel',
+        "mode Arrêt affiché, l'état de chauffe est illisible : vérifiez sur le panneau",
+      ),
       stillHeating: both(
         'mode Off shown, but the body still heats: check on the panel',
         'mode Arrêt affiché, mais le bassin chauffe encore : vérifiez sur le panneau',

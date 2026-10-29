@@ -106,6 +106,13 @@ const OBJECTS_QUERY = { condition: '', objectList: [{ objnam: 'INCR', keys: OBJE
 const stopKey = (target, objnam, attr) => `${target.host}:${target.port}|${objnam}|${attr}`;
 const settingKey = (objnam, attr) => `${objnam}|${attr}`;
 
+/**
+ * Whether a body heats, or may: its heat mode not seen Off, or heating still
+ * reported (HTMODE not 0; unreadable counts as heating).
+ */
+const heatsBody = (body) =>
+  !body || body.values.MODE !== HEAT_OFF || integerOf(body.values.HTMODE) !== 0;
+
 /** The option names of the status and the errors. */
 const OPTION_TEXTS = {
   circuits: T.optionCircuits,
@@ -258,36 +265,80 @@ export class IntelliCenterApp {
   // --- /data -------------------------------------------------------------------
 
   /**
-   * Loads /data once (the stops kept there belong to the whole run). A load
-   * that hangs is given up after 2 s and treated as unreadable (never
-   * overwritten): nothing waits for a hung disk without a bound.
+   * Loads /data once (the stops kept there belong to the whole run). Nothing
+   * waits for it more than 2 s: past that, /data counts as unreadable (never
+   * overwritten) until the load ends; a load that ends late is applied then
+   * (its stops sent, the flag lifted). Only a real read error or invalid
+   * JSON is unreadable for good.
    */
   loadMemory() {
     if (!this.memoryLoaded) {
-      this.memoryLoaded = (async () => {
-        let result;
+      const load = (async () => {
         try {
-          const loaded = await this.bounded(
-            Promise.resolve().then(() => this.store.load()),
-            TIMINGS.loadWait,
-          );
-          result = loaded.done ? (loaded.value ?? { unreadable: true }) : { unreadable: true };
+          return (await this.store.load()) ?? { unreadable: true };
         } catch {
-          result = { unreadable: true };
+          return { unreadable: true };
         }
-        if (result?.unreadable) {
+      })();
+      this.memoryLoaded = (async () => {
+        const first = await this.bounded(load, TIMINGS.loadWait);
+        if (!first.done) {
+          // Slow disk: go on as unreadable for now, apply the load when it ends.
           this.memoryUnreadable = true;
-          this.logger.warn(
-            'IntelliCenter: /data/intellicenter-state.json cannot be read: it is never overwritten',
-          );
-          this.memory = normalizeMemory(null, this.now());
+          this.logger.warn('IntelliCenter: /data is slow to read: not written until it is read');
+          load.then((result) => this.lateLoad(result)).catch(() => {});
           return;
         }
-        this.memory = normalizeMemory(result?.data ?? null, this.now());
-        this.savedStops = JSON.stringify(this.memory.stops);
+        this.applyLoad(first.value);
       })().finally(() => this.flushAddressless());
     }
     return this.memoryLoaded;
+  }
+
+  /** The content of /data read in time. */
+  applyLoad(result) {
+    if (result?.unreadable) {
+      this.memoryUnreadable = true;
+      this.logger.warn(
+        'IntelliCenter: /data/intellicenter-state.json cannot be read: it is never overwritten',
+      );
+      this.memory = normalizeMemory(null, this.now());
+      return;
+    }
+    this.memory = normalizeMemory(result?.data ?? null, this.now());
+    this.savedStops = JSON.stringify(this.memory.stops);
+  }
+
+  /**
+   * /data read after the 2 s: merged into what this run already knows (a stop
+   * kept in memory wins over the one of the file), its stops sent as at a
+   * start, and /data written again from now on.
+   */
+  lateLoad(result) {
+    if (result?.unreadable) {
+      this.logger.warn('IntelliCenter: /data cannot be read: it is never overwritten');
+      return;
+    }
+    const loaded = normalizeMemory(result?.data ?? null, this.now());
+    this.memoryUnreadable = false;
+    this.memory.target = this.memory.target ?? loaded.target;
+    if (loaded.lastAttemptAt !== null) {
+      this.memory.lastAttemptAt = Math.max(
+        this.memory.lastAttemptAt ?? -Infinity,
+        loaded.lastAttemptAt,
+      );
+      this.lastAttemptAt = Math.max(
+        this.lastAttemptAt,
+        this.mono() - (this.now() - loaded.lastAttemptAt),
+      );
+    }
+    this.savedStops = JSON.stringify(loaded.stops);
+    this.memory.stops = loaded.stops;
+    this.logger.warn('IntelliCenter: /data read late: applied now');
+    this.adoptStops(loaded.stops);
+    this.flushAddressless();
+    this.persistStops().catch(() => {});
+    this.saveMemory().catch(() => {});
   }
 
   async saveMemory() {
@@ -335,8 +386,13 @@ export class IntelliCenterApp {
    */
   async boot() {
     await this.loadMemory();
+    this.adoptStops(this.memory.stops);
+  }
+
+  /** Stops read from /data: kept as guards (never over one this run holds), the unheld sent now. */
+  adoptStops(stops) {
     const send = new Map();
-    for (const kept of this.memory.stops) {
+    for (const kept of stops) {
       const target = { host: kept.host, port: kept.port };
       const key = stopKey(target, kept.objnam, kept.attr);
       if (this.guards.has(key)) continue;
@@ -767,6 +823,7 @@ export class IntelliCenterApp {
       let state;
       if (!g.written) state = 'notSent';
       else if (g.applied) state = 'watch';
+      else if (g.heatingSince !== undefined && g.heatUnknown) state = 'heatUnknown';
       else if (g.heatingSince !== undefined) {
         state = this.mono() - g.heatingSince < TIMINGS.heatCoolDown ? 'coolDown' : 'stillHeating';
       } else if (g.resends >= TIMINGS.stopResends) state = 'held';
@@ -1214,6 +1271,13 @@ export class IntelliCenterApp {
       : undefined;
   }
 
+  /** Whether a heat stop is kept (not seen applied) at the configured address. */
+  heatStopKept() {
+    return [...this.guards.values()].some(
+      (g) => g.attr === 'MODE' && sameAddress(g.target, this.config.address),
+    );
+  }
+
   /**
    * What to write for one command, from the fresh read: `{ write }`,
    * `{ skip: true }` (already so), or `{ refuse: text }`.
@@ -1228,19 +1292,19 @@ export class IntelliCenterApp {
       if (isBodyCircuit(object)) {
         // Its pump starts, and with it the heating of its body unless that is seen off.
         const body = bodyOfCircuit(object, objects);
-        const mode = body ? objects.get(body)?.values.MODE : undefined;
-        heats = mode !== HEAT_OFF;
-        if (heats && body && this.guardOf(body, 'MODE')) {
+        // During the heat stop of its body (not seen applied): refused, whatever is read.
+        if (body ? this.guardOf(body, 'MODE') : this.heatStopKept()) {
           return { refuse: ERRORS.stopInProgress };
         }
+        heats = !body || heatsBody(objects.get(body));
       } else if (object.subtype === 'CIRCGRP') {
         // A group ("Spa Mode") may turn a body on, and its heating: its members
-        // are not read, so it heats unless every body is seen with its heat mode off.
-        const bodies = [...objects.values()].filter((o) => o.type === 'BODY');
-        heats = bodies.length === 0 || bodies.some((b) => b.values.MODE !== HEAT_OFF);
-        if (bodies.some((b) => this.guardOf(b.objnam, 'MODE'))) {
+        // are not read, so it heats unless every body is seen not heating.
+        if (this.heatStopKept()) {
           return { refuse: ERRORS.stopInProgress };
         }
+        const bodies = [...objects.values()].filter((o) => o.type === 'BODY');
+        heats = bodies.length === 0 || bodies.some(heatsBody);
       }
       const options = this.optionsFor(entry, object, heats);
       const refused = this.admit(entry, options);
@@ -1631,7 +1695,8 @@ export class IntelliCenterApp {
       throw this.refusal(ERRORS.noAddress);
     }
     const job = this.queueStop({ target, specs: [spec], received });
-    const key = stopKey(target, spec.objnam, spec.attr);
+    // By setting, not by address: the stop may follow the panel to a new address meanwhile.
+    const key = settingKey(spec.objnam, spec.attr);
     const answerIn = Math.max(0, received + TIMINGS.commandAnswerBy - this.mono());
     let timer;
     const done = await Promise.race([
@@ -1642,7 +1707,9 @@ export class IntelliCenterApp {
     ]);
     this.timers.clearTimeout(timer);
     if (!done) {
-      const guard = this.guards.get(key);
+      const guard = [...this.guards.values()].find(
+        (g) => g.objnam === spec.objnam && g.attr === spec.attr,
+      );
       throw this.refusal(
         guard?.written ? ERRORS.stopUnconfirmed : ERRORS.stopNotSent('no turn yet'),
       );
@@ -1721,6 +1788,8 @@ export class IntelliCenterApp {
       applied: false,
       /** A heat stop: the mode Off shown while the body still heats, since (monotonic). */
       heatingSince: undefined,
+      /** ... and HTMODE could not be read (the heating state is unknown). */
+      heatUnknown: false,
       /** What the last read said of it (src: decideStop). */
       decision: undefined,
       /** Until then, a command that left before the stop may still land: watched. */
@@ -1757,6 +1826,8 @@ export class IntelliCenterApp {
       if (guard.attr === 'MODE' && integerOf(values.HTMODE) !== 0) {
         guard.applied = false;
         guard.heatingSince ??= mono;
+        // HTMODE not readable: the heating state is unknown (said as such).
+        guard.heatUnknown = integerOf(values.HTMODE) === undefined;
         return 'heating';
       }
       guard.applied = true;
@@ -1933,7 +2004,7 @@ export class IntelliCenterApp {
     }
     let keep = false;
     for (const guard of guards) {
-      const key = guard.key;
+      const key = settingKey(guard.objnam, guard.attr);
       if (!this.current(guard)) {
         // Let go meanwhile (a newer command left): nothing more to say.
         job.results.set(key, {});
@@ -2032,12 +2103,15 @@ export class IntelliCenterApp {
         }
         const startedAt = this.mono();
         let read;
+        // A command arriving takes the line from a check (src/lane.js): a
+        // check of a dead address never makes a command miss its turn.
+        const wait = TIMINGS.readTimeout;
         try {
           read = await this.readBack(
             target,
             guards.map((g) => g.objnam),
             holder,
-            this.mono() + TIMINGS.readTimeout,
+            this.mono() + wait,
           );
         } catch (err) {
           if (err.kind === ERROR_KINDS.ABORTED) throw err;
@@ -2053,7 +2127,7 @@ export class IntelliCenterApp {
         const wasWritten = new Set(resend.filter((g) => g.written));
         try {
           await this.client.request(target, COMMANDS.SET, () => this.stopWrites(resend), {
-            timeoutMs: TIMINGS.readTimeout,
+            timeoutMs: wait,
             signal: holder.signal,
             beforeSend: () => {
               if (this.checkMustYield()) {
@@ -2090,7 +2164,7 @@ export class IntelliCenterApp {
             target,
             resend.map((g) => g.objnam),
             holder,
-            this.mono() + TIMINGS.readTimeout,
+            this.mono() + wait,
           );
           for (const g of resend) {
             if (!this.current(g)) continue;
@@ -2101,7 +2175,10 @@ export class IntelliCenterApp {
         }
       })();
     } catch (err) {
-      if (err?.kind !== ERROR_KINDS.ABORTED) {
+      if (err?.kind === ERROR_KINDS.ABORTED) {
+        // Its turn taken by a stop or a command: again a second later.
+        yielded = true;
+      } else {
         this.logger.warn(`IntelliCenter: check of the stops failed (${errorReason(err)})`);
       }
     } finally {
