@@ -169,3 +169,12 @@ up to date at the end of every milestone.
   but one equivalent (the `getConfig` retry timer rewritten in place).
 - **Test files**: `test/kit/` holds gladys-testkit files as is (excluded from
   Prettier).
+
+## Next patch
+
+- r4 m1 (`src/app.js:1696-1713`): when the panel moved, a stop that follows it to the new address can still
+  undo a newer command (`retargetStops` ignores commands that left; s40 h and i). Safe direction, but the docs
+  promise otherwise: date the commands that left and drop, unwritten, any older stop in `retargetStops` and
+  `followPanel`.
+- r4 m2 (`src/app.js:2068`): with HTMODE unreadable, the click answer says "still heating" while the status
+  says "unreadable".
