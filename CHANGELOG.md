@@ -10,6 +10,8 @@ the notes of the version's GitHub Release.
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-29
+
 ### Added
 
 - Pentair IntelliCenter pool panels read over their local protocol (TCP port
@@ -35,3 +37,6 @@ the notes of the version's GitHub Release.
   check of the stops.
 - A stop kept in `/data` never undoes a command of the same setting that left
   since the start (a slow `/data`), and follows the panel to its new address.
+
+[Unreleased]: https://github.com/LM1LC3N7/gladys-intellicenter/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/LM1LC3N7/gladys-intellicenter/releases/tag/v0.1.1

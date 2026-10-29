@@ -1,6 +1,6 @@
 {
   "name": "gladys-intellicenter",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Gladys Assistant external integration for Pentair IntelliCenter pool panels, over their local TCP protocol (port 6681). Unofficial, not affiliated with Pentair.",
   "type": "module",
