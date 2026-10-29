@@ -1,177 +1,142 @@
 {
   "manifest_version": 1,
   "type": "device",
-  "name": "Demo Devices Template",
+  "name": "Pentair IntelliCenter",
   "description": {
-    "en": "Starter template showing sensors, a switch, a dimmable light and a smart plug.",
-    "fr": "Template de démarrage : capteurs, interrupteur, lampe variable et prise connectée."
+    "en": "Pentair IntelliCenter pool panels on the local network: circuits, pumps, heating, chemistry.",
+    "fr": "Panneaux de piscine Pentair IntelliCenter en local : circuits, pompes, chauffage, chimie."
   },
-  "version": "1.0.0",
-  "docker_image": "ghcr.io/gladysassistant/integration-template-js:1.0.0",
+  "version": "0.1.0",
+  "docker_image": "ghcr.io/lm1lc3n7/gladys-intellicenter:0.1.0",
   "gladys_version": ">=5.1.0",
-  "cover_image": "https://raw.githubusercontent.com/GladysAssistant/integration-template-js/master/cover.png",
-  "categories": ["lighting", "security", "environment"],
-  "transports": ["local", "cloud"],
+  "cover_image": "https://raw.githubusercontent.com/LM1LC3N7/gladys-intellicenter/main/cover.png",
+  "categories": ["appliances", "environment"],
+  "transports": ["local"],
   "config_schema": [
     {
       "key": "intro",
       "type": "section",
-      "label": { "en": "Getting started", "fr": "Pour commencer" },
+      "label": { "en": "Your IntelliCenter panel", "fr": "Votre panneau IntelliCenter" },
       "description": {
-        "en": "The demo weather station reads real data from the free Open-Meteo API: pick the coordinates to observe. No account, no API key.",
-        "fr": "La station météo de démonstration lit de vraies données via l'API gratuite Open-Meteo : choisissez les coordonnées à observer. Pas de compte, pas de clé d'API."
+        "en": "Shows your Pentair IntelliCenter pool panel in Gladys through its local protocol (TCP port 6681), without any cloud: bodies (pool, spa) with their water temperature, heat mode and heating set point, circuits, lights, pumps, temperature sensors, IntelliChem and IntelliChlor. Enter the IP address of the panel (give it a fixed address in your router), save, then add it from the Discovery tab. Turning a circuit or a heating off always works; turning things on and heating are only allowed by the options below. Never tested with a real panel. Not affiliated with Pentair.",
+        "fr": "Affiche votre panneau de piscine Pentair IntelliCenter dans Gladys par son protocole local (port TCP 6681), sans cloud : bassins (piscine, spa) avec température de l'eau, mode de chauffage et consigne, circuits, éclairages, pompes, sondes de température, IntelliChem et IntelliChlor. Saisissez l'adresse IP du panneau (donnez-lui une adresse fixe dans votre box), enregistrez, puis ajoutez-le depuis l'onglet Découverte. Arrêter un circuit ou un chauffage fonctionne toujours ; mettre en marche et chauffer ne sont permis que par les options ci-dessous. Jamais testé avec un vrai panneau. Sans lien avec Pentair."
       },
       "links": [
         {
-          "url": "https://open-meteo.com/en/docs",
-          "label": { "en": "Open-Meteo documentation", "fr": "Documentation Open-Meteo" }
+          "url": "https://github.com/LM1LC3N7/gladys-intellicenter/blob/main/docs/fr.md",
+          "label": { "en": "Guide (French)", "fr": "Guide (français)" }
+        },
+        {
+          "url": "https://github.com/LM1LC3N7/gladys-intellicenter/blob/main/docs/en.md",
+          "label": { "en": "Guide (English)", "fr": "Guide (anglais)" }
         }
       ]
     },
     {
-      "key": "latitude",
-      "type": "number",
-      "label": { "en": "Latitude", "fr": "Latitude" },
+      "key": "host",
+      "type": "string",
+      "label": { "en": "IP address of the panel", "fr": "Adresse IP du panneau" },
       "description": {
-        "en": "Latitude used for the demo weather sensor.",
-        "fr": "Latitude utilisée par le capteur météo de démonstration."
+        "en": "An IPv4 address or a host name, optionally followed by a port (6681 by default).",
+        "fr": "Une adresse IPv4 ou un nom d'hôte, éventuellement suivi d'un port (6681 par défaut)."
       },
-      "placeholder": { "en": "e.g. 48.8566", "fr": "ex. 48.8566" },
+      "placeholder": { "en": "192.168.1.60", "fr": "192.168.1.60" },
       "required": true,
-      "default": 48.8566,
-      "min": -90,
-      "max": 90
+      "default": ""
     },
     {
-      "key": "longitude",
-      "type": "number",
-      "label": { "en": "Longitude", "fr": "Longitude" },
-      "description": {
-        "en": "Longitude used for the demo weather sensor.",
-        "fr": "Longitude utilisée par le capteur météo de démonstration."
+      "key": "allow_circuits",
+      "type": "boolean",
+      "label": {
+        "en": "Allow turning circuits and pumps on",
+        "fr": "Autoriser la mise en marche des circuits et pompes"
       },
-      "placeholder": { "en": "e.g. 2.3522", "fr": "ex. 2.3522" },
-      "required": true,
-      "default": 2.3522,
-      "min": -180,
-      "max": 180
-    },
-    {
-      "key": "unit",
-      "type": "select",
-      "label": { "en": "Temperature unit", "fr": "Unité de température" },
+      "description": {
+        "en": "Off by default. On: Gladys may turn on the circuits that are not lights (pool, spa and their pumps, featured circuits). Turning a pool or spa on whose heat mode is not Off also needs the heating option. Turning off works either way.",
+        "fr": "Désactivé par défaut. Activé : Gladys peut mettre en marche les circuits qui ne sont pas des éclairages (piscine, spa et leurs pompes, circuits mis en avant). Mettre en marche une piscine ou un spa dont le mode de chauffage n'est pas Arrêt exige aussi l'option chauffage. L'arrêt fonctionne dans les deux cas."
+      },
       "required": false,
-      "default": "celsius",
-      "options": [
-        { "value": "celsius", "label": { "en": "Celsius", "fr": "Celsius" } },
-        { "value": "fahrenheit", "label": { "en": "Fahrenheit", "fr": "Fahrenheit" } }
-      ]
+      "default": false
     },
     {
-      "key": "poll_frequency",
+      "key": "allow_lights",
+      "type": "boolean",
+      "label": { "en": "Allow turning lights on", "fr": "Autoriser l'allumage des éclairages" },
+      "description": {
+        "en": "Off by default. On: Gladys may turn on the light circuits. Turning off works either way.",
+        "fr": "Désactivé par défaut. Activé : Gladys peut allumer les circuits d'éclairage. L'extinction fonctionne dans les deux cas."
+      },
+      "required": false,
+      "default": false
+    },
+    {
+      "key": "allow_heating",
+      "type": "boolean",
+      "label": { "en": "Allow heating", "fr": "Autoriser le chauffage" },
+      "description": {
+        "en": "Off by default. On: Gladys may choose a heat source and set the heating set point of a body (a spa 40 °C at most, a pool the ceiling below). Setting the heat mode to Off works either way.",
+        "fr": "Désactivé par défaut. Activé : Gladys peut choisir une source de chauffage et régler la consigne de chauffage d'un bassin (un spa 40 °C au plus, une piscine le plafond ci-dessous). Mettre le mode de chauffage sur Arrêt fonctionne dans les deux cas."
+      },
+      "required": false,
+      "default": false
+    },
+    {
+      "key": "max_pool_setpoint",
+      "type": "number",
+      "label": {
+        "en": "Ceiling of the pool set point (°C)",
+        "fr": "Plafond de la consigne de la piscine (°C)"
+      },
+      "description": {
+        "en": "The highest heating set point Gladys may write for a pool (35 °C by default, 40 °C at most). A spa is always limited to 40 °C. Checked on the value written, after the conversion to °F when the panel is in °F.",
+        "fr": "La consigne de chauffage la plus haute que Gladys peut écrire pour une piscine (35 °C par défaut, 40 °C au plus). Un spa est toujours limité à 40 °C. Vérifié sur la valeur écrite, après conversion en °F quand le panneau est en °F."
+      },
+      "required": false,
+      "default": 35,
+      "min": 10,
+      "max": 40
+    },
+    {
+      "key": "poll_interval",
       "type": "number",
       "label": { "en": "Refresh interval (s)", "fr": "Intervalle de rafraîchissement (s)" },
       "description": {
-        "en": "How often sensors are polled, in seconds (one minute minimum).",
-        "fr": "Fréquence d'interrogation des capteurs, en secondes (une minute minimum)."
+        "en": "How often the panel is read, in seconds.",
+        "fr": "Fréquence de lecture du panneau, en secondes."
       },
       "required": false,
-      "default": 300,
-      "min": 60,
-      "max": 3600
+      "default": 30,
+      "min": 15,
+      "max": 600
+    },
+    {
+      "key": "language",
+      "type": "select",
+      "label": {
+        "en": "Language of the feature names",
+        "fr": "Langue des noms des fonctionnalités"
+      },
+      "description": {
+        "en": "Used for the feature names of the devices added from now on, for the status texts and for the command errors.",
+        "fr": "Sert aux noms des fonctionnalités des appareils ajoutés désormais, aux textes d'état et aux erreurs des commandes."
+      },
+      "required": false,
+      "default": "fr",
+      "options": [
+        { "value": "fr", "label": { "en": "French", "fr": "Français" } },
+        { "value": "en", "label": { "en": "English", "fr": "Anglais" } }
+      ]
     }
   ],
   "actions": [
     {
-      "key": "test_weather",
-      "label": { "en": "Test the weather provider", "fr": "Tester le fournisseur météo" },
+      "key": "test_connection",
+      "label": { "en": "Test the connection", "fr": "Tester la connexion" },
+      "description": {
+        "en": "Reads the panel once (never sooner than the refresh interval) and shows its state. Stops not yet seen applied are checked and sent first.",
+        "fr": "Lit le panneau une fois (jamais avant l'intervalle de rafraîchissement) et affiche son état. Les arrêts pas encore vus appliqués sont vérifiés et envoyés d'abord."
+      },
       "timeout_seconds": 30
-    },
-    {
-      "key": "identify",
-      "label": { "en": "Identify a device", "fr": "Identifier un appareil" },
-      "fields": [
-        {
-          "key": "device",
-          "type": "select",
-          "source": "devices",
-          "label": { "en": "Device", "fr": "Appareil" },
-          "required": true
-        }
-      ]
-    }
-  ],
-  "scene_triggers": [
-    {
-      "key": "motion_detected",
-      "label": { "en": "Motion detected", "fr": "Mouvement détecté" },
-      "description": {
-        "en": "A demo motion sensor saw a person or an animal move.",
-        "fr": "Un détecteur de démonstration a vu bouger une personne ou un animal."
-      },
-      "fields": [
-        {
-          "key": "device",
-          "type": "select",
-          "source": "devices",
-          "label": { "en": "Sensor", "fr": "Détecteur" }
-        },
-        {
-          "key": "target",
-          "type": "multi_select",
-          "label": { "en": "What moved", "fr": "Ce qui a bougé" },
-          "options": [
-            { "value": "person", "label": { "en": "Person", "fr": "Personne" } },
-            { "value": "animal", "label": { "en": "Animal", "fr": "Animal" } }
-          ]
-        }
-      ],
-      "variables": [
-        {
-          "key": "target",
-          "type": "string",
-          "label": { "en": "What moved", "fr": "Ce qui a bougé" }
-        }
-      ]
-    }
-  ],
-  "scene_actions": [
-    {
-      "key": "identify_device",
-      "label": { "en": "Identify a device", "fr": "Identifier un appareil" },
-      "description": {
-        "en": "Make a device signal itself (the demo light blinks).",
-        "fr": "Fait se signaler un appareil (la lampe de démonstration clignote)."
-      },
-      "timeout_seconds": 15,
-      "fields": [
-        {
-          "key": "device",
-          "type": "select",
-          "source": "devices",
-          "label": { "en": "Device", "fr": "Appareil" },
-          "required": true
-        }
-      ],
-      "outputs": [
-        {
-          "key": "signalled",
-          "type": "boolean",
-          "label": { "en": "Device signalled", "fr": "Appareil signalé" }
-        }
-      ]
-    }
-  ],
-  "widgets": [
-    {
-      "key": "demo_status",
-      "label": { "en": "Demo status", "fr": "État de la démo" },
-      "description": {
-        "en": "Live temperature and plug power, plug connection and observed location.",
-        "fr": "Température et puissance en direct, connexion de la prise, position observée."
-      },
-      "icon": "activity",
-      "action_timeout_seconds": 15
     }
   ]
 }

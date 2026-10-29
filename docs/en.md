@@ -1,61 +1,123 @@
-# Demo Devices Template
+# Pentair IntelliCenter for Gladys
 
-This is the user documentation of the integration. Gladys re-hosts this file
-and shows a permanent **Documentation** link to it in the Configuration screen
-(in the user's language, with English as the fallback) — it is when
-configuring that the user needs it most. Keep the short onboarding hints in
-the `section` blocks of the manifest `config_schema`; put the long
-step-by-step (screenshots, troubleshooting…) here.
+Shows your **Pentair IntelliCenter** pool panel (i5P, i7+3, i8PS, i10PS,
+i10+3D) in Gladys through its **local protocol** (TCP, port 6681): no cloud,
+no account, straight on your network.
+
+> **Never tested with a real panel.** Not affiliated with Pentair.
+> The integration follows the pyintellicenter library (MIT). A firmware
+> update of the panel may change the protocol. ScreenLogic is not supported.
 
 ## What you get
 
-Six demo devices show up after installation: a weather station (real data
-from Open-Meteo), a switch, a dimmable light, a smart plug with power
-metering, a motion sensor and a camera.
+One device per panel (identified by the unique name of its system, not by
+its IP address), with, for each object the panel shows:
 
-## Configuration
+| Object                        | Features                                                            |
+| ----------------------------- | ------------------------------------------------------------------- |
+| Body (pool, spa)              | Water temperature, heating set point, heat mode (list), heating now |
+| Circuit (pool, spa, featured) | On / off (list)                                                     |
+| Light                         | On / off (list)                                                     |
+| Pump                          | Running, speed (rpm), power (W)                                     |
+| Sensor (air, solar, water)    | Temperature                                                         |
+| IntelliChem                   | pH, ORP (mV), pH and ORP set points (read only)                     |
+| IntelliChlor                  | Salt (ppm)                                                          |
 
-1. Open the **Configuration** tab of the integration.
-2. Set the **latitude** and **longitude** the demo weather station should
-   observe (they default to Paris), and pick your temperature unit.
-   The **refresh interval** sets how often the weather station and the
-   plug's power are read: every 5 minutes by default, every minute at most.
-3. Save: the devices appear in the **Discovery** tab, ready to be added.
+Plus a **Status** feature (connected or unreachable). Circuits that are not
+featured (the unused "Aux") are not shown.
 
-The **Prefer the local connection** toggle drives the demo plug: it reports
-the channel it actually uses as a badge (local or cloud), with an orange dot
-when it runs degraded (local refused, cloud fallback).
+- Temperatures are in °C: a panel set to °F is converted exactly
+  ((°F − 32) × 5 / 9). When the unit of the panel cannot be read, no
+  temperature is published.
+- The water temperature of a body is only published while it runs (pump on):
+  stopped, the panel keeps an old value.
+- A value that is unknown, empty, or 0 where 0 means "not available" (pH,
+  ORP, salt) is never published.
 
-## Actions
+Read every 30 seconds by default (15 s to 10 min, adjustable), one request at
+a time, on one connection.
 
-- **Test the weather provider** — performs a live request to Open-Meteo and
-  shows the current temperature and humidity under the button.
-- **Identify a device** — pick one of your devices in the list and it will
-  signal itself (the demo light "blinks" in the logs).
+## Installation
 
-## Scenes
+1. Give the panel a fixed IP address in your router.
+2. In Gladys, install the integration and enter the IP address of the panel
+   (or its host name, optionally followed by a port).
+3. Save, then add the panel from the **Discovery** tab.
 
-The integration adds its own cards to the scene editor (Gladys 5.1 or
-later), under the **Integrations** category:
+The panel has no credentials: nothing secret is configured.
 
-- **Motion detected** (trigger) — starts the scene when a demo motion sensor
-  sees something move. Optionally pick the sensor and what moved (person,
-  animal); left empty, any detection matches. The following actions can
-  read what moved with `{{triggerEvent.data.target}}`.
-- **Identify a device** (action) — makes the chosen device signal itself.
-  It returns whether the device could signal itself, so the following
-  actions can depend on it.
+## Turning off (always available)
 
-## Dashboard
+Choosing **Off** on a circuit (or a light), or **Off** in the heat mode of a
+body, depends on no option, nor on a read or a command in progress (it ends
+them and goes on a new connection), nor on a failed read, nor on the
+configuration: right after a restart, it goes to the address of the last
+panel read (kept in `/data`), and a stop not yet seen applied before a
+restart is sent again as soon as the container starts. A command that
+arrived before it and has not left yet is given up. Several stops clicked
+together go in one write.
 
-Add the **Demo status** widget to a dashboard: it shows the live
-temperature of the weather station and the power of the office plug, the
-connection the plug currently uses (orange when degraded) and the observed
-location. Its **Identify the light** button makes the demo light signal
-itself.
+It succeeds when the read back of the panel shows it. Otherwise the answer
+says why, and the stop is kept (in `/data`) and checked every 15 s and at
+every read:
 
-## Troubleshooting
+- **no address known** (no configuration, no panel read before): nothing is
+  sent (the only refusal);
+- **the panel does not answer** (3 s of tries, every 250 ms): tried again
+  every 15 s and when you click **Test the connection**; a stop that never
+  left is never given up;
+- **refused by the panel** (a code other than 200): written again every
+  15 s (a refusal does not count as a write);
+- **not applied yet** (the panel does not show it): written again 3 times at
+  most (writes the panel accepted), then held without new writes, which the
+  status of the integration says;
+- **without confirmation** in time (4.3 s): checked the same way.
 
-The integration logs everything it does: check the integration logs from the
-Gladys UI (or `docker logs` on the host) with `LOG_LEVEL=debug` for the full
-detail.
+The status of the integration says where each stop is: not sent yet, sent
+and waiting for the read back, held, or watched.
+
+A kept stop is let go when the panel shows it, or when a command of the same
+setting clicked in Gladys after it (option on) left without a refusal of the
+panel (no answer lets it go too: the command may have been applied). A new
+click on Off writes it again and counts its writes anew. Never by time. A
+command that left less than 30 s before the stop and lands after it is
+countered by a new write. While the heating stop of a body is not seen
+applied, its set point and turning its circuit on (if that would heat) are
+refused.
+
+## Turning on and heating (options)
+
+Three options, **off by default**:
+
+- **Allow turning circuits and pumps on**: the circuits that are not lights
+  (pool, spa and their pumps, featured circuits). Turning on a pool or spa
+  whose heat mode is not seen Off also needs the heating option (its pump
+  starts, and with it its heating).
+- **Allow turning lights on**.
+- **Allow heating**: choosing a heat source, setting the set point. A **spa
+  is limited to 40 °C**, a pool to the ceiling of the configuration (35 °C by
+  default, 40 °C at most). The bound is checked on the value written (a whole
+  degree), after the conversion to °F when the panel is in °F: 40 °C =
+  104 °F; the low bound is 4 °C (40 °F).
+
+They are lists and a set point, never a switch: a "turn everything off" never
+reaches them. Each command reads the panel again right before (identity,
+objects, unit), checks the options again right before writing, leaves within
+3.5 s or not at all, and succeeds only when the read back shows the value
+asked ("sent, not applied yet" otherwise, then reads at 5 and 20 s). Commands
+arriving together (a scene) go in one write. Also refused: before the
+configuration is read, when another panel answers at the address, or when a
+stop was clicked meanwhile.
+
+## Good to know
+
+- The panel is never read sooner than the interval: not by the **Test the
+  connection** button, a Discovery, a reconnection to Gladys or a restart (the
+  time of the last read is kept in `/data`). Only the reads that follow a
+  command (5 and 20 s) and the checks of a kept stop (every 15 s) are an
+  exception.
+- A value older than 2 minutes is never sent again as new.
+- The chemistry set points (pH, ORP), the pump speeds, light shows and
+  schedules are read only or absent in this version.
+- The Pentair app, the screen of the panel and its schedules may drive it
+  too: the last write wins.
