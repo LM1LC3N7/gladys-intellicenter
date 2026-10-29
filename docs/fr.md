@@ -96,8 +96,11 @@ Un arrêt gardé est levé quand le panneau le montre, ou quand une commande du
 même réglage cliquée dans Gladys après lui (option activée) est partie sans
 refus du panneau (une absence de réponse le lève aussi : la commande a pu
 s'appliquer). Un nouveau clic sur Arrêt le réécrit et recompte ses écritures.
-Jamais par le temps. Une commande partie moins de 30 s avant l'arrêt et
-appliquée après lui est contrée par une nouvelle écriture. Tant que l'arrêt
+Un arrêt gardé dans `/data` avant un redémarrage est levé de même, sans être
+envoyé, quand une telle commande de son réglage est partie depuis le démarrage
+(un `/data` lent à lire est appliqué à la fin de sa lecture). Jamais par le
+temps. Une commande partie moins de 30 s avant l'arrêt et appliquée après
+lui est contrée par une nouvelle écriture. Tant que l'arrêt
 du chauffage d'un bassin n'est pas vu appliqué, sa consigne, la mise en
 marche de son circuit et celle d'un groupe de circuits sont refusées. Un
 bassin « chauffe » tant que son mode n'est pas vu sur Arrêt **ou** que le

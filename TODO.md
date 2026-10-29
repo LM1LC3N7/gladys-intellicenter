@@ -52,6 +52,19 @@ up to date at the end of every milestone.
 
 ## Decisions
 
+- **Review r3 (2026-10-29)**: I1 tests for a command never taking the line
+  from a stop (only from a check), a late /data never replacing a stop of
+  this run, a body circuit of no known body refused during a heat stop. m1 a
+  stop of /data (clicked before the restart) is let go, unsent, when a
+  command of its setting left in this run without a refusal (200 or no
+  answer, as for a kept stop), at boot or when /data is read late; /data
+  then forgets it; a stop let go while it waited for the line is not
+  written (checked again in `beforeSend`); the stops of a late /data follow
+  the same panel (same id) to the address read in this run. m2 tests for the
+  answer of a stop found by its setting and a check cut by a command tried
+  again a second later. Every mutant of the reviewer (R2, R6, R8, R9, R11)
+  and of these guards killed.
+
 - **Review r2 (2026-10-29)**: B1 a /data load slower than 2 s is no longer
   dropped: nothing waits for it past 2 s, and when it ends it is applied
   (its stops kept and the unheld sent, `target` and `lastAttemptAt` taken,

@@ -33,3 +33,5 @@ the notes of the version's GitHub Release.
 - A slow /data is applied when its read ends (its kept stops sent); a body
   still reporting heating counts as heating; a command never waits behind a
   check of the stops.
+- A stop kept in `/data` never undoes a command of the same setting that left
+  since the start (a slow `/data`), and follows the panel to its new address.

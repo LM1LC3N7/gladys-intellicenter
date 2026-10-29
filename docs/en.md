@@ -91,12 +91,15 @@ there), its kept stops follow it.
 A kept stop is let go when the panel shows it, or when a command of the same
 setting clicked in Gladys after it (option on) left without a refusal of the
 panel (no answer lets it go too: the command may have been applied). A new
-click on Off writes it again and counts its writes anew. Never by time. A
-command that left less than 30 s before the stop and lands after it is
-countered by a new write. While the heating stop of a body is not seen
-applied, its set point, turning its circuit on and turning a circuit group
-on are refused. A body "heats" while its heat mode is not seen Off **or**
-the panel still reports heating (unreadable counts as heating).
+click on Off writes it again and counts its writes anew. A stop kept in
+`/data` before a restart is let go the same way, unsent, when such a command
+of its setting left since the start (a `/data` slow to read is applied when
+its read ends). Never by time. A command that left less than 30 s before
+the stop and lands after it is countered by a new write. While the heating
+stop of a body is not seen applied, its set point, turning its circuit on
+and turning a circuit group on are refused. A body "heats" while its heat
+mode is not seen Off **or** the panel still reports heating (unreadable
+counts as heating).
 
 ## Turning on and heating (options)
 

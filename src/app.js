@@ -195,6 +195,12 @@ export class IntelliCenterApp {
     this.lastOnSentAt = new Map();
     /** setting key -> monotonic end: a command sent and not confirmed (never "already so" meanwhile). */
     this.pending = new Map();
+    /**
+     * Stop keys (address and setting) a command of this run left for without
+     * a refusal (200, or no answer): newer than any stop kept in /data, which
+     * never undoes it (a /data read late, src: adoptStops).
+     */
+    this.commandsLeft = new Set();
     /** Commands waiting for their batch, and the worker running the batches. */
     this.commandQueue = [];
     this.commandWorker = undefined;
@@ -311,8 +317,9 @@ export class IntelliCenterApp {
 
   /**
    * /data read after the 2 s: merged into what this run already knows (a stop
-   * kept in memory wins over the one of the file), its stops sent as at a
-   * start, and /data written again from now on.
+   * kept in memory wins over the one of the file, a command of this run that
+   * left drops the stop of its setting), its stops sent as at a start, and
+   * /data written again from now on.
    */
   lateLoad(result) {
     if (result?.unreadable) {
@@ -320,6 +327,8 @@ export class IntelliCenterApp {
       return;
     }
     const loaded = normalizeMemory(result?.data ?? null, this.now());
+    // The panel read in this run, if any (only a read sets the target).
+    const known = this.memory.target;
     this.memoryUnreadable = false;
     this.memory.target = this.memory.target ?? loaded.target;
     if (loaded.lastAttemptAt !== null) {
@@ -335,7 +344,7 @@ export class IntelliCenterApp {
     this.savedStops = JSON.stringify(loaded.stops);
     this.memory.stops = loaded.stops;
     this.logger.warn('IntelliCenter: /data read late: applied now');
-    this.adoptStops(loaded.stops);
+    this.adoptStops(this.followPanel(loaded.stops, loaded.target, known));
     this.flushAddressless();
     this.persistStops().catch(() => {});
     this.saveMemory().catch(() => {});
@@ -389,13 +398,37 @@ export class IntelliCenterApp {
     this.adoptStops(this.memory.stops);
   }
 
+  /**
+   * The stops of a /data read late, when this run already read the same
+   * panel (same id) at another address: those of its old address follow it
+   * (as `retargetStops` does for a read after the load).
+   */
+  followPanel(stops, from, known) {
+    if (!known || !from?.id || known.id !== from.id || sameAddress(known, from)) {
+      return stops;
+    }
+    return stops.map((s) =>
+      sameAddress(s, from) ? { ...s, host: known.host, port: known.port } : s,
+    );
+  }
+
   /** Stops read from /data: kept as guards (never over one this run holds), the unheld sent now. */
   adoptStops(stops) {
     const send = new Map();
+    let dropped = false;
     for (const kept of stops) {
       const target = { host: kept.host, port: kept.port };
       const key = stopKey(target, kept.objnam, kept.attr);
       if (this.guards.has(key)) continue;
+      if (this.commandsLeft.has(key)) {
+        // Clicked before the restart; a command of this setting left since
+        // (a /data read late): the newer intent, never undone.
+        this.logger.warn(
+          `IntelliCenter: a stop kept in /data for ${kept.objnam} let go (a newer command left)`,
+        );
+        dropped = true;
+        continue;
+      }
       const guard = this.newGuard(target, kept);
       guard.since = kept.since;
       guard.written = kept.written;
@@ -416,6 +449,8 @@ export class IntelliCenterApp {
       this.logger.warn(`IntelliCenter: ${specs.length} stop(s) kept in /data sent again`);
       this.queueStop({ target, specs, received: this.mono(), fromBoot: true });
     }
+    // /data without the stops let go (a restart never sends them again).
+    if (dropped) this.persistStops().catch(() => {});
   }
 
   // --- Lifecycle -------------------------------------------------------------
@@ -1467,7 +1502,7 @@ export class IntelliCenterApp {
         this.finishWith(planned[index].entry, ERRORS.replaced);
         planned.splice(index, 1);
       }
-      planned.push({ entry, ...plan.write });
+      planned.push({ entry, address, ...plan.write });
     }
     if (planned.length === 0) return;
     let sending = planned;
@@ -1549,10 +1584,14 @@ export class IntelliCenterApp {
   /**
    * Commands that left (a 200, or no clear refusal: they may be applied) for
    * a setting with a stop kept: the newer intent wins, the stop is let go,
-   * never one clicked while they were on their way.
+   * never one clicked while they were on their way. Newer than any stop of
+   * /data too (clicked before this run): noted for a /data read late.
    */
   newerThanStops(sent) {
     for (const p of sent) {
+      if (p.entry.kind !== KINDS.SETPOINT) {
+        this.commandsLeft.add(stopKey(p.address, p.entry.objnam, p.entry.attr));
+      }
       if (p.entry.kind === KINDS.SETPOINT || p.entry.seq !== this.protectSeq) continue;
       const guard = this.guardOf(p.entry.objnam, p.entry.attr);
       if (guard) this.dropGuard(guard, 'newer command');
@@ -1943,7 +1982,7 @@ export class IntelliCenterApp {
     let sentGuards = [];
     this.logger.info(`IntelliCenter: stop of ${guards.length} setting(s)`);
     for (;;) {
-      const live = guards.filter((g) => this.current(g));
+      let live = guards.filter((g) => this.current(g));
       if (live.length === 0) break;
       const holder = await this.lane.acquire('stop');
       try {
@@ -1956,6 +1995,10 @@ export class IntelliCenterApp {
           signal: holder.signal,
           fresh: true,
           beforeSend: () => {
+            // Let go while it waited for the line (a command of the setting
+            // that left, the panel showing it): nothing to write for it.
+            live = live.filter((g) => this.current(g));
+            if (live.length === 0) throw new Error('nothing left to write');
             const at = this.mono();
             this.lastSentAt = at;
             written = true;
