@@ -43,7 +43,8 @@ Gladys ⇄ SDK ⇄ src/handlers.js ⇄ src/app.js (IntelliCenterApp)
 - **Commands** (a circuit on, a heat source, a set point): behind
   `allow_circuits`, `allow_lights`, `allow_heating` (off), checked again in
   `beforeSend`, decided on a fresh read, set points bounded on the degree
-  written after conversion (spa 40 °C, pool the ceiling), several in one
+  written after conversion (spa 40 °C, pool the ceiling; heating never started
+  while the set point held is above it or unreadable), several in one
   write, confirmed by a read back.
 
 ## Credits

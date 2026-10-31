@@ -221,6 +221,8 @@ export const TIMINGS = {
   stopRefusedMax: 5 * MINUTE,
   /** The heat stop: the mode Off shown, the heating may take this long to end (cool-down). */
   heatCoolDown: 2 * MINUTE,
+  /** A heating refused for its held set point is said in the status this long at most. */
+  heatRefusalShown: 15 * MINUTE,
   /** A stop not seen applied: checked every 15 s; never written again sooner than 15 s. */
   stopCheck: 15 * SECOND,
   /** A read begun less than this after a stop left does not judge it "not applied". */

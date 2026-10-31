@@ -125,6 +125,19 @@ Trois options, **désactivées par défaut** :
   la valeur écrite (un degré entier), après la conversion en °F quand le
   panneau est en °F : 40 °C = 104 °F ; le bas est 4 °C (40 °F).
 
+**La consigne déjà gardée.** Le panneau chauffe jusqu'à la consigne qu'il
+garde, que l'application Pentair a pu laisser au-dessus du plafond. Toute
+commande qui lance ou active le chauffage (une source de chauffage, une
+piscine ou un spa qui chauffe mis en marche, un groupe de circuits tant
+qu'un bassin chauffe) lit donc d'abord cette consigne sur la relecture
+fraîche et est **refusée** si elle dépasse le plafond de son bassin (celui
+de la configuration pour une piscine, 40 °C pour un spa ; comparée au degré
+entier, en °F arrondi vers le bas) ou si elle est illisible. La réponse et
+l'état disent quel bassin et pourquoi (« baissez d'abord la consigne ») ;
+l'état le garde jusqu'à ce qu'une lecture montre la consigne sous le
+plafond, 15 minutes au plus. L'arrêt (mode Arrêt, un circuit arrêté) n'est
+jamais vérifié.
+
 Ce sont des listes et une consigne, jamais un interrupteur : un « tout
 éteindre » ne les atteint pas. Chaque commande relit le panneau juste avant
 (identité, objets, unité), revérifie les options juste avant d'écrire, part

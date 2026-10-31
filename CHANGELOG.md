@@ -10,6 +10,15 @@ the notes of the version's GitHub Release.
 
 ## [Unreleased]
 
+### Fixed
+
+- Heating is no longer started to a set point left above the ceiling (by the
+  Pentair app, say): a heat source, a pool or spa that heats turned on, or a
+  circuit group while a body heats are refused when the set point the body
+  holds is above its ceiling (the pool ceiling of the configuration, 40 °C
+  for a spa) or cannot be read. The answer and the status say why. Turning
+  off is never checked.
+
 ## [0.1.1] - 2026-10-29
 
 ### Added

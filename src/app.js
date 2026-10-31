@@ -31,6 +31,10 @@
 //   - set points bounded on the whole degree written, after the conversion to
 //     °F when the panel is in °F: 4 °C (40 °F) to 40 °C (104 °F) for a spa, to
 //     the pool ceiling of the configuration (35 °C by default) for a pool;
+//   - heating started or enabled (a heat source, a body circuit that heats,
+//     a group while a body heats) heats to the set point the body already
+//     holds: refused when it is above that ceiling or unreadable (said in the
+//     status); turning off is never checked;
 //   - commands arriving together (a scene) go in one write; each leaves by
 //     3.5 s after its click or not at all, is answered by 4.3 s, and is
 //     confirmed only by a read back showing what was asked ("sent, not
@@ -86,6 +90,7 @@ import {
   ceilingOf,
   integerOf,
   groupObjects,
+  heldSetpoint,
   isBodyCircuit,
   isLight,
   parseObjects,
@@ -195,6 +200,12 @@ export class IntelliCenterApp {
     this.lastOnSentAt = new Map();
     /** setting key -> monotonic end: a command sent and not confirmed (never "already so" meanwhile). */
     this.pending = new Map();
+    /**
+     * objnam -> { text, at }: heating refused because the set point the body
+     * holds is above its ceiling or unreadable (said in the status until a
+     * read shows it within the ceiling, 15 min at most).
+     */
+    this.heatRefusals = new Map();
     /**
      * Stop keys (address and setting) a command of this run left for without
      * a refusal (200, or no answer): newer than any stop kept in /data, which
@@ -809,6 +820,13 @@ export class IntelliCenterApp {
     p.unit = system.unit;
     p.objects = objects;
     p.readAt = startedAt;
+    // A heating refusal is no longer said once its body holds a set point within its ceiling.
+    for (const key of [...this.heatRefusals.keys()]) {
+      const body = objects.get(key);
+      if (body?.type === 'BODY' && this.heldOf(body, system).state === 'ok') {
+        this.heatRefusals.delete(key);
+      }
+    }
   }
 
   /** Keeps in /data the address and id of the panel read, when they changed. */
@@ -878,7 +896,21 @@ export class IntelliCenterApp {
     for (const note of this.stopNotes()) {
       text = join(text, note);
     }
+    for (const note of this.heatRefusalNotes()) {
+      text = join(text, note);
+    }
     return text;
+  }
+
+  /** The heating refusals of the last 15 min still not cleared by a read (3 at most). */
+  heatRefusalNotes() {
+    const mono = this.mono();
+    const notes = [];
+    for (const [key, r] of this.heatRefusals) {
+      if (mono - r.at > TIMINGS.heatRefusalShown) this.heatRefusals.delete(key);
+      else notes.push(r.text);
+    }
+    return notes.slice(-3);
   }
 
   /** The options turned off, for the status. */
@@ -1313,6 +1345,36 @@ export class IntelliCenterApp {
     );
   }
 
+  /** The set point a body holds against its ceiling (a spa 40 °C, a pool the configuration's). */
+  heldOf(body, system) {
+    return heldSetpoint(body, system.unit, ceilingOf(body, this.config.poolCeiling));
+  }
+
+  /**
+   * Heating started or enabled on `body` (from the fresh read) heats to the
+   * set point it already holds, maybe left above the ceiling by the Pentair
+   * app: the refusal text when that set point is above the body's ceiling or
+   * cannot be read (no body known counts as unreadable), else undefined.
+   * `label`: the object named in the text and the status.
+   */
+  heatRefusal(body, label, system) {
+    const held = body?.type === 'BODY' ? this.heldOf(body, system) : { state: 'unreadable' };
+    if (held.state === 'ok') {
+      if (this.heatRefusals.delete(body.objnam)) this.updateStatus().catch(() => {});
+      return undefined;
+    }
+    // The fresh read has no names (COMMAND_KEYS): the name of the last full read.
+    const name = this.nameOf(label.objnam);
+    const text =
+      held.state === 'above'
+        ? ERRORS.setpointAbove(name, held.celsius, held.ceiling)
+        : ERRORS.setpointUnreadable(name);
+    this.heatRefusals.delete(label.objnam);
+    this.heatRefusals.set(label.objnam, { text, at: this.mono() });
+    this.updateStatus().catch(() => {});
+    return text;
+  }
+
   /**
    * What to write for one command, from the fresh read: `{ write }`,
    * `{ skip: true }` (already so), or `{ refuse: text }`.
@@ -1324,6 +1386,8 @@ export class IntelliCenterApp {
         return { refuse: ERRORS.unknownObject };
       }
       let heats = false;
+      // The bodies whose heating starts with it: each heats to the set point it holds.
+      let heated = () => undefined;
       if (isBodyCircuit(object)) {
         // Its pump starts, and with it the heating of its body unless that is seen off.
         const body = bodyOfCircuit(object, objects);
@@ -1332,6 +1396,7 @@ export class IntelliCenterApp {
           return { refuse: ERRORS.stopInProgress };
         }
         heats = !body || heatsBody(objects.get(body));
+        heated = () => this.heatRefusal(objects.get(body), object, system);
       } else if (object.subtype === 'CIRCGRP') {
         // A group ("Spa Mode") may turn a body on, and its heating: its members
         // are not read, so it heats unless every body is seen not heating.
@@ -1340,10 +1405,20 @@ export class IntelliCenterApp {
         }
         const bodies = [...objects.values()].filter((o) => o.type === 'BODY');
         heats = bodies.length === 0 || bodies.some(heatsBody);
+        // No body read: their set points are unreadable.
+        heated = () =>
+          bodies.length === 0
+            ? this.heatRefusal(undefined, object, system)
+            : bodies
+                .filter(heatsBody)
+                .map((b) => this.heatRefusal(b, b, system))
+                .find(Boolean);
       }
       const options = this.optionsFor(entry, object, heats);
       const refused = this.admit(entry, options);
       if (refused) return { refuse: refused };
+      const tooHot = heats ? heated() : undefined;
+      if (tooHot) return { refuse: tooHot };
       if (
         object.values.STATUS === ON &&
         !this.isPending(entry.objnam, 'STATUS') &&
@@ -1363,6 +1438,9 @@ export class IntelliCenterApp {
     if (refused) return { refuse: refused };
     if (entry.kind === KINDS.HEAT_MODE) {
       if (!object.values.MODE) return { refuse: ERRORS.unknownObject };
+      // A heat source chosen (never Off: that is a stop) heats to the set point the body holds.
+      const tooHot = this.heatRefusal(object, object, system);
+      if (tooHot) return { refuse: tooHot };
       if (
         object.values.MODE === entry.wanted &&
         !this.isPending(entry.objnam, 'MODE') &&

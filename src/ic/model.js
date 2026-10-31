@@ -189,6 +189,27 @@ export function ceilingOf(body, poolCeiling) {
 }
 
 /**
+ * The set point a body already holds, against its ceiling, before heating is
+ * started or enabled on it (the panel heats to it): `{ state: 'ok' }`,
+ * `{ state: 'unreadable' }` (no number, or the unit unknown), or
+ * `{ state: 'above', celsius, ceiling }`. Compared on the whole degree, as a
+ * set point is written: in °F, the ceiling converted and rounded down.
+ */
+export function heldSetpoint(body, unit, ceilingC) {
+  const ceiling = Math.min(ceilingC, SETPOINT.maxC, SETPOINT.spaMaxC);
+  const value = numberOf(body?.values?.LOTMP);
+  if (value === undefined || (unit !== 'C' && unit !== 'F')) {
+    return { state: 'unreadable' };
+  }
+  // The ceiling is 40 °C at most: 104 °F at most.
+  const high = unit === 'C' ? ceiling : Math.floor((ceiling * 9) / 5 + 32);
+  if (value > high) {
+    return { state: 'above', celsius: celsiusOf(body.values.LOTMP, unit), ceiling };
+  }
+  return { state: 'ok' };
+}
+
+/**
  * The whole degree to write for a set point asked in °C, in the unit of the
  * panel: `{ value }` (a string), or `{ low, high }` (°C) when out of bounds.
  * The bounds are those of the written degree after conversion: low rounded

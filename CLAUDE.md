@@ -79,8 +79,11 @@ id)`, `id` the hash of the system `SNAME` (`panelIdOf`), never the address.
   writable binary; refused unless their option, checked on arrival, on the
   fresh read and in `beforeSend`; a body circuit whose heat mode is not seen
   off needs heating too; set points bounded on the degree written after the
-  °F conversion (spa ≤ 40 °C, pool ≤ the ceiling); confirmed only by a read
-  back equal to the value asked.
+  °F conversion (spa ≤ 40 °C, pool ≤ the ceiling); anything that starts or
+  enables heating (heat source, a body circuit that heats, a group while a
+  body heats) refused when the set point the body holds, on the fresh read,
+  is above its ceiling or unreadable (`heldSetpoint`); confirmed only by a
+  read back equal to the value asked.
 - **Clocks**: monotonic for every in-memory time; the wall clock for /data only.
 - **Never read sooner than the interval** (button, scan, reconnection,
   restart); only the follow-up reads after a command (5 s, 20 s).

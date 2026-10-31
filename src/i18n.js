@@ -230,6 +230,16 @@ export const ERRORS = {
       `Set point out of bounds: ${decimal(low, 'en')} to ${decimal(high, 'en')} °C. Nothing sent.`,
       `Consigne hors bornes : ${decimal(low, 'fr')} à ${decimal(high, 'fr')} °C. Rien envoyé.`,
     ),
+  setpointAbove: (name, celsius, ceiling) =>
+    both(
+      `Heating of ${name} not started: the set point it holds (${decimal(celsius, 'en')} °C) is above its ceiling (${decimal(ceiling, 'en')} °C). Lower the set point first; nothing sent.`,
+      `Chauffage de ${name} non lancé : la consigne qu'il garde (${decimal(celsius, 'fr')} °C) dépasse son plafond (${decimal(ceiling, 'fr')} °C). Baissez d'abord la consigne ; rien envoyé.`,
+    ),
+  setpointUnreadable: (name) =>
+    both(
+      `Heating of ${name} not started: the set point it holds cannot be read, so it cannot be checked against its ceiling. Nothing sent.`,
+      `Chauffage de ${name} non lancé : la consigne qu'il garde est illisible, elle ne peut pas être comparée à son plafond. Rien envoyé.`,
+    ),
   stopInProgress: both(
     'A stop of this body is in progress (not seen applied): set the heat mode first, nothing sent.',
     "Un arrêt de ce bassin est en cours (pas encore vu appliqué) : réglez d'abord le mode de chauffage, rien envoyé.",

@@ -52,6 +52,18 @@ up to date at the end of every milestone.
 
 ## Decisions
 
+- **Held set point (2026-10-31, after the OmniLogic r1 I1)**: a heat source,
+  a body circuit that heats and a circuit group while a body heats are
+  refused when the `LOTMP` its body holds, on the fresh read, is above the
+  body's ceiling (pool: the configuration, spa: 40 °C; whole degree, °F
+  rounded down) or unreadable (a body circuit whose body is unknown, a group
+  with no body read, the unit unknown). Checked after the options (an option
+  off says so first) and before "already so" (a source already selected
+  above the ceiling is still refused). Said in the ack and in the status
+  until a read shows it within the ceiling, 15 min at most. Stops never
+  checked. Pumps take no command here (only circuits). The manifest test no
+  longer pins 0.1.0 (it failed since the 0.1.1 release).
+
 - **Review r3 (2026-10-29)**: I1 tests for a command never taking the line
   from a stop (only from a check), a late /data never replacing a stop of
   this run, a body circuit of no known body refused during a heat stop. m1 a

@@ -118,6 +118,17 @@ Three options, **off by default**:
   degree), after the conversion to °F when the panel is in °F: 40 °C =
   104 °F; the low bound is 4 °C (40 °F).
 
+**The set point already held.** The panel heats to the set point it holds,
+which the Pentair app may have left above the ceiling. So every command that
+starts or enables heating (a heat source, a pool or spa that heats turned
+on, a circuit group while a body heats) first reads that set point on the
+fresh read and is **refused** when it is above the ceiling of its body (the
+pool ceiling of the configuration, 40 °C for a spa; compared on the whole
+degree, in °F rounded down) or cannot be read. The answer and the status say
+which body and why ("lower the set point first"); the status keeps it until
+a read shows the set point within the ceiling, 15 minutes at most. Turning
+off (heat mode Off, a circuit off) is never checked.
+
 They are lists and a set point, never a switch: a "turn everything off" never
 reaches them. Each command reads the panel again right before (identity,
 objects, unit), checks the options again right before writing, leaves within
