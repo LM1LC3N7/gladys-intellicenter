@@ -126,8 +126,12 @@ fresh read and is **refused** when it is above the ceiling of its body (the
 pool ceiling of the configuration, 40 °C for a spa; compared on the whole
 degree, in °F rounded down) or cannot be read. The answer and the status say
 which body and why ("lower the set point first"); the status keeps it until
-a read shows the set point within the ceiling, 15 minutes at most. Turning
-off (heat mode Off, a circuit off) is never checked.
+a read shows the set point within the ceiling (the body known, for a circuit
+or a group), 15 minutes at most. Turning off (heat mode Off, a circuit off) is
+never checked. In a **scene** that lowers the set point and chooses a heat
+source in the same go, the source is decided on the read made before the
+write: it is refused while the set point held is above the ceiling, and goes
+through at the next click (or the next run of the scene).
 
 They are lists and a set point, never a switch: a "turn everything off" never
 reaches them. Each command reads the panel again right before (identity,

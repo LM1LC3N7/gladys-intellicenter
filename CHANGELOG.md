@@ -17,7 +17,8 @@ the notes of the version's GitHub Release.
   circuit group while a body heats are refused when the set point the body
   holds is above its ceiling (the pool ceiling of the configuration, 40 °C
   for a spa) or cannot be read. The answer and the status say why. Turning
-  off is never checked.
+  off is never checked. A scene that lowers the set point and chooses a heat
+  source at once sees the source refused (it passes at the next click).
 
 ## [0.1.1] - 2026-10-29
 

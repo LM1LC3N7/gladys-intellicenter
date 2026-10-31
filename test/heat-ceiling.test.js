@@ -9,7 +9,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { heldSetpoint } from '../src/ic/model.js';
-import { HOST, fakePanel } from './fixtures/fakePanel.js';
+import { HOST, fakePanel, initialObjects } from './fixtures/fakePanel.js';
 import { ALLOW, MINUTE, ok, refused, setup } from './helpers.js';
 import { testClock } from './kit/clock.mjs';
 
@@ -204,7 +204,12 @@ test('circuit group: every body that may heat is checked; one above refuses the 
   t.panel.objects.B1101.LOTMP = '98';
   refused(await t.press('circuit-GRP01', 'on'), ABOVE);
   assert.equal(t.panel.sets().length, 1, 'only the first group on');
+  // Both heat, the pool (read first) within its ceiling, the spa above: refused for the spa.
   t.panel.objects.B1101.LOTMP = '90';
+  t.panel.objects.B1202.LOTMP = '106';
+  refused(await t.press('circuit-GRP01', 'on'), /Spa non lancé .*dépasse son plafond \(40 °C\)/);
+  assert.equal(t.panel.sets().length, 1);
+  t.panel.objects.B1202.LOTMP = '100';
   ok(await t.press('circuit-GRP01', 'on'));
   assert.equal(t.panel.objects.GRP01.STATUS, 'ON');
 });
@@ -217,6 +222,15 @@ test('circuit group with no body read: the set points cannot be read, refused', 
   });
   refused(await t.press('circuit-GRP01', 'on'), /Spa Mode non lancé : la consigne .*illisible/);
   assert.equal(t.panel.sets().length, 0);
+  // Still no body read: still said.
+  await t.advance(2 * MINUTE, 100);
+  assert.match(t.status().text, /Spa Mode non lancé/);
+  // A body read, within its ceiling: cleared by that read.
+  t.panel.objects.B1202 = { ...initialObjects().B1202 };
+  // The pool does not heat (MODE 1): its set point above the ceiling is not checked.
+  t.panel.objects.B1101 = { ...initialObjects().B1101, LOTMP: '98' };
+  await t.advance(2 * MINUTE, 100);
+  assert.doesNotMatch(t.status().text, /non lancé/);
 });
 
 test('the status note goes once a read shows the set point within the ceiling, or after 15 min', async () => {
@@ -238,4 +252,76 @@ test('the status note goes once a read shows the set point within the ceiling, o
   assert.match(t.status().text, ABOVE);
   await t.advance(2 * MINUTE, 1000);
   assert.doesNotMatch(t.status().text, /non lancé/);
+});
+
+test('a refusal on a body circuit or a group is cleared by the next read once the body is within its ceiling', async () => {
+  const SPA = /Chauffage de Spa non lancé/;
+  const t = await setupWith((p) => {
+    p.objects.B1202.LOTMP = '105';
+    p.objects.GRP01 = { ...GROUP };
+  });
+  refused(await t.press('circuit-C0001', 'on'), SPA);
+  refused(await t.press('circuit-GRP01', 'on'), SPA);
+  assert.match(t.status().text, SPA);
+  t.panel.objects.B1202.LOTMP = '100';
+  await t.advance(2 * MINUTE, 100);
+  assert.doesNotMatch(t.status().text, /non lancé/);
+  ok(await t.press('circuit-C0001', 'on'));
+
+  // Refused again, then accepted before any read: the success clears it at once.
+  t.panel.objects.C0001.STATUS = 'OFF';
+  t.panel.objects.B1202.LOTMP = '105';
+  refused(await t.press('circuit-C0001', 'on'), SPA);
+  t.panel.objects.B1202.LOTMP = '100';
+  const ack = t.fire('circuit-C0001', 'on');
+  await t.advance(1500, 50);
+  ok(await ack);
+  assert.doesNotMatch(t.status().text, /non lancé/);
+});
+
+test('a refusal with no body known is cleared once a read knows the body within its ceiling', async () => {
+  const t = await setupWith((p) => {
+    delete p.objects.C0001.BODY;
+    p.objects.B1303 = { ...p.objects.B1202, SNAME: 'Spa 2', LOTMP: '90' };
+  });
+  refused(await t.press('circuit-C0001', 'on'), /illisible/);
+  await t.advance(2 * MINUTE, 100);
+  assert.match(t.status().text, /illisible/, 'still unknown: still said');
+  t.panel.objects.C0001.BODY = 'B1202';
+  await t.advance(2 * MINUTE, 100);
+  assert.doesNotMatch(t.status().text, /non lancé/);
+});
+
+test('the status says 3 heating refusals at most, the latest', async () => {
+  const t = await setupWith((p) => {
+    for (const [objnam, name] of [
+      ['B1101', 'Pool'],
+      ['B1303', 'Pool B'],
+      ['B1404', 'Pool C'],
+      ['B1505', 'Pool D'],
+    ]) {
+      p.objects[objnam] = { ...p.objects.B1101, SNAME: name, LOTMP: '98' };
+    }
+  });
+  for (const b of ['B1101', 'B1303', 'B1404', 'B1505']) {
+    refused(await t.press(`heat-mode-${b}`, 'heater'), /dépasse son plafond/);
+  }
+  const text = t.status().text;
+  assert.equal(text.match(/non lancé/g).length, 3);
+  assert.doesNotMatch(text, /Chauffage de Pool non lancé/);
+  assert.match(text, /Chauffage de Pool D non lancé/);
+});
+
+test('a scene lowering the set point and choosing a source: the source refused, a second click passes', async () => {
+  const t = await setupWith((p) => (p.objects.B1101.LOTMP = '98'));
+  const setpoint = t.fire('setpoint-B1101', 28);
+  const source = t.fire('heat-mode-B1101', 'heater');
+  await t.advance(5000, 50);
+  ok(await setpoint);
+  // Decided on the read before the write, which still shows 98 °F.
+  refused(await source, ABOVE);
+  assert.equal(t.panel.objects.B1101.LOTMP, '82');
+  assert.equal(t.panel.objects.B1101.MODE, '1');
+  ok(await t.press('heat-mode-B1101', 'heater'));
+  assert.equal(t.panel.objects.B1101.MODE, '2');
 });

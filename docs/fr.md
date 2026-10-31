@@ -135,8 +135,12 @@ de la configuration pour une piscine, 40 °C pour un spa ; comparée au degré
 entier, en °F arrondi vers le bas) ou si elle est illisible. La réponse et
 l'état disent quel bassin et pourquoi (« baissez d'abord la consigne ») ;
 l'état le garde jusqu'à ce qu'une lecture montre la consigne sous le
-plafond, 15 minutes au plus. L'arrêt (mode Arrêt, un circuit arrêté) n'est
-jamais vérifié.
+plafond (le bassin connu, pour un circuit ou un groupe), 15 minutes au plus.
+L'arrêt (mode Arrêt, un circuit arrêté) n'est jamais vérifié. Dans une
+**scène** qui baisse la consigne et choisit une source de chauffage d'un même
+coup, la source est décidée sur la lecture faite avant l'écriture : elle est
+refusée tant que la consigne gardée dépasse le plafond, et passe au clic
+suivant (ou au lancement suivant de la scène).
 
 Ce sont des listes et une consigne, jamais un interrupteur : un « tout
 éteindre » ne les atteint pas. Chaque commande relit le panneau juste avant

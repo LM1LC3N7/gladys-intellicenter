@@ -822,11 +822,24 @@ export class IntelliCenterApp {
     p.readAt = startedAt;
     // A heating refusal is no longer said once its body holds a set point within its ceiling.
     for (const key of [...this.heatRefusals.keys()]) {
-      const body = objects.get(key);
-      if (body?.type === 'BODY' && this.heldOf(body, system).state === 'ok') {
-        this.heatRefusals.delete(key);
-      }
+      if (this.heatCleared(objects.get(key), objects, system)) this.heatRefusals.delete(key);
     }
+  }
+
+  /**
+   * Whether a read clears the heating refusal kept under `object`: a body
+   * whose set point is within its ceiling; a circuit whose body is now known
+   * and is so; a group whose bodies are read and each that heats is so.
+   */
+  heatCleared(object, objects, system) {
+    const within = (body) => body?.type === 'BODY' && this.heldOf(body, system).state === 'ok';
+    if (object?.type === 'BODY') return within(object);
+    if (object?.subtype === 'CIRCGRP') {
+      const bodies = [...objects.values()].filter((o) => o.type === 'BODY');
+      return bodies.length > 0 && bodies.filter(heatsBody).every(within);
+    }
+    if (object && isBodyCircuit(object)) return within(objects.get(bodyOfCircuit(object, objects)));
+    return false;
   }
 
   /** Keeps in /data the address and id of the panel read, when they changed. */
@@ -1355,7 +1368,9 @@ export class IntelliCenterApp {
    * set point it already holds, maybe left above the ceiling by the Pentair
    * app: the refusal text when that set point is above the body's ceiling or
    * cannot be read (no body known counts as unreadable), else undefined.
-   * `label`: the object named in the text and the status.
+   * `label`: the object named in the text and the status. The note is kept
+   * under the body (cleared by a read showing it within its ceiling), under
+   * `label` only when no body is known.
    */
   heatRefusal(body, label, system) {
     const held = body?.type === 'BODY' ? this.heldOf(body, system) : { state: 'unreadable' };
@@ -1369,8 +1384,9 @@ export class IntelliCenterApp {
       held.state === 'above'
         ? ERRORS.setpointAbove(name, held.celsius, held.ceiling)
         : ERRORS.setpointUnreadable(name);
-    this.heatRefusals.delete(label.objnam);
-    this.heatRefusals.set(label.objnam, { text, at: this.mono() });
+    const key = body?.type === 'BODY' ? body.objnam : label.objnam;
+    this.heatRefusals.delete(key);
+    this.heatRefusals.set(key, { text, at: this.mono() });
     this.updateStatus().catch(() => {});
     return text;
   }

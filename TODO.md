@@ -49,6 +49,13 @@ up to date at the end of every milestone.
 - Whether the panel accepts several TCP clients (the Pentair app, Home
   Assistant) and closes idle connections; the time a write takes to show.
 - Which circuits a user expects (FEATR ON, the `SHOMNU` permissions).
+- A featured circuit tied to a body (`BODY`, sub-type GENERIC, "Spa Jets"):
+  treated as a plain circuit, accepted without the heating option while its
+  body heats. Does turning it on start its body (and its heating)?
+- `LOTMP` is the set point the heater aims at: pyintellicenter also names
+  `SETPT` ("same as LOTMP") and `SETTMP` ("used by some systems"). If a
+  firmware heats to another, the bounded write and the held set point check
+  both miss.
 
 ## Decisions
 
@@ -61,7 +68,13 @@ up to date at the end of every milestone.
   off says so first) and before "already so" (a source already selected
   above the ceiling is still refused). Said in the ack and in the status
   until a read shows it within the ceiling, 15 min at most. Stops never
-  checked. Pumps take no command here (only circuits). The manifest test no
+  checked. Pumps take no command here (only circuits). Review r1 of the fix:
+  I1 test for a group whose second heating body (the spa) is above; m1 the
+  note kept under the body (a circuit or group key only when no body is
+  known, cleared by the read that knows it); m2 a scene lowering the set point
+  and choosing a source: the source refused, documented and tested (deciding
+  on the batch's own write was not chosen: the read is the evidence); m3 two
+  points to check on a real panel. The manifest test no
   longer pins 0.1.0 (it failed since the 0.1.1 release).
 
 - **Review r3 (2026-10-29)**: I1 tests for a command never taking the line
