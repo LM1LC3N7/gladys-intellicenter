@@ -197,6 +197,8 @@ up to date at the end of every milestone.
 
 ## Next patch
 
+- ceiling r2 m1 (`src/app.js:839`): no test for a group note with no body read facing a read where one body
+  heats under its ceiling and another above it (mutant `every` to `some` survives). Status note only.
 - r4 m1 (`src/app.js:1696-1713`): when the panel moved, a stop that follows it to the new address can still
   undo a newer command (`retargetStops` ignores commands that left; s40 h and i). Safe direction, but the docs
   promise otherwise: date the commands that left and drop, unwritten, any older stop in `retargetStops` and
