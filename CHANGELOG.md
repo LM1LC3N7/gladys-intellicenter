@@ -10,6 +10,8 @@ the notes of the version's GitHub Release.
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-10-31
+
 ### Fixed
 
 - Heating is no longer started to a set point left above the ceiling (by the
@@ -48,5 +50,6 @@ the notes of the version's GitHub Release.
 - A stop kept in `/data` never undoes a command of the same setting that left
   since the start (a slow `/data`), and follows the panel to its new address.
 
-[Unreleased]: https://github.com/LM1LC3N7/gladys-intellicenter/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/LM1LC3N7/gladys-intellicenter/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/LM1LC3N7/gladys-intellicenter/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/LM1LC3N7/gladys-intellicenter/releases/tag/v0.1.1

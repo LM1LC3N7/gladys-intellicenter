@@ -6,8 +6,8 @@
     "en": "Pentair IntelliCenter pool panels on the local network: circuits, pumps, heating, chemistry.",
     "fr": "Panneaux de piscine Pentair IntelliCenter en local : circuits, pompes, chauffage, chimie."
   },
-  "version": "0.1.1",
-  "docker_image": "ghcr.io/lm1lc3n7/gladys-intellicenter:0.1.1",
+  "version": "0.1.2",
+  "docker_image": "ghcr.io/lm1lc3n7/gladys-intellicenter:0.1.2",
   "gladys_version": ">=5.1.0",
   "cover_image": "https://raw.githubusercontent.com/LM1LC3N7/gladys-intellicenter/main/cover.png",
   "categories": ["appliances", "environment"],
